@@ -1,0 +1,16 @@
+{
+  "type": "com.buildright.website.mainpage_service.translate",
+  "source": "/org-admin/website/mainpage",
+  "subject": "42",
+  "id": "translation-123",
+  "organisation_id": "7",
+  "time": "2026-07-27T14:30:00+00:00",
+  "datacontenttype": "application/json",
+  "data": {
+    "service_id": 42,
+    "organisation_id": 7,
+    "source_locale": "nl",
+    "target_locale": "en",
+    "text": "Elektrische installaties voor woningen"
+  }
+}

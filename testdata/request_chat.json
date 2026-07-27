@@ -1,0 +1,14 @@
+{
+  "type": "com.buildright.ai.chat",
+  "source": "/ai-gateway",
+  "subject": null,
+  "id": "abc-123",
+  "organisation_id": "7",
+  "time": "2026-07-27T14:30:00+00:00",
+  "datacontenttype": "application/json",
+  "data": {
+    "system_prompt": "You are a helpful assistant.",
+    "prompt": "Translate to English: Hallo wereld",
+    "model": "qwen3:14b-q4_K_M"
+  }
+}

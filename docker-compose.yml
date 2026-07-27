@@ -1,0 +1,18 @@
+services:
+  ai-gateway:
+    build: .
+    container_name: ai-gateway
+    restart: unless-stopped
+    environment:
+      REDIS_ADDR: redis:6379
+      INPUT_QUEUE: ai.requests
+      OUTPUT_QUEUE: ai.responses
+      OLLAMA_URL: http://foundation-model:11434
+      OLLAMA_MODEL: qwen3:14b-q4_K_M
+      BRPOP_TIMEOUT: 5
+    networks:
+      - construction_dev
+
+networks:
+  construction_dev:
+    external: true

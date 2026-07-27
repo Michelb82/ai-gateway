@@ -1,0 +1,6 @@
+# Construction AI Gateway
+
+*.exe
+*.test
+coverage.out
+.env

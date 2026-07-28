@@ -78,20 +78,32 @@ func (w *Worker) handle(ctx context.Context, event *cloudevent.Event) error {
 		return w.publishFailure(ctx, event, err)
 	}
 
-	response := cloudevent.NewResponse(event, cloudevent.EventTypeChatCompleted, map[string]any{
+	response := cloudevent.NewResponse(event, cloudevent.EventTypeChatCompleted, responseData(event, map[string]any{
+		"status":       "ok",
+		"content":      result,
 		"result":       result,
 		"model":        chooseModel(model, w.model),
 		"request_type": event.Type,
-	})
+	}))
 	return w.publish(ctx, event, response)
 }
 
 func (w *Worker) publishFailure(ctx context.Context, event *cloudevent.Event, cause error) error {
-	response := cloudevent.NewResponse(event, cloudevent.EventTypeChatFailed, map[string]any{
+	response := cloudevent.NewResponse(event, cloudevent.EventTypeChatFailed, responseData(event, map[string]any{
+		"status":       "error",
 		"error":        cause.Error(),
 		"request_type": event.Type,
-	})
+	}))
 	return w.publish(ctx, event, response)
+}
+
+// responseData builds response payload fields expected by construction PHP consumers,
+// including echoed callback context used for handler dispatch.
+func responseData(request *cloudevent.Event, data map[string]any) map[string]any {
+	if callback, ok := request.Data["callback"]; ok {
+		data["callback"] = callback
+	}
+	return data
 }
 
 func (w *Worker) publish(ctx context.Context, request *cloudevent.Event, response *cloudevent.Event) error {

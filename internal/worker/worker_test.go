@@ -31,13 +31,48 @@ func TestHandleSuccessPublishesCompletedEvent(t *testing.T) {
 	if response.Subject == nil || *response.Subject != request.ID {
 		t.Fatalf("Subject = %v, want %q", response.Subject, request.ID)
 	}
+	if response.Data["status"] != "ok" {
+		t.Fatalf("status = %v", response.Data["status"])
+	}
+	if response.Data["content"] != "Hello world" {
+		t.Fatalf("content = %v", response.Data["content"])
+	}
 	if response.Data["result"] != "Hello world" {
 		t.Fatalf("result = %v", response.Data["result"])
 	}
 }
 
+func TestHandleSuccessEchoesCallback(t *testing.T) {
+	request := mustEvent(t, "request_chat.json")
+	request.Data["callback"] = map[string]any{
+		"handler": "website.mainpage.translate",
+		"context": map[string]any{
+			"service_id": float64(42),
+		},
+	}
+	publisher := &fakePublisher{}
+	ollama := &fakeOllama{result: "translated"}
+
+	w := New(nil, publisher, ollama, "default-model", nil)
+	if err := w.handle(context.Background(), request); err != nil {
+		t.Fatalf("handle() error = %v", err)
+	}
+
+	callback, ok := publisher.events[0].Data["callback"].(map[string]any)
+	if !ok {
+		t.Fatalf("callback missing or wrong type: %v", publisher.events[0].Data["callback"])
+	}
+	if callback["handler"] != "website.mainpage.translate" {
+		t.Fatalf("callback.handler = %v", callback["handler"])
+	}
+}
+
 func TestHandleOllamaErrorPublishesFailedEvent(t *testing.T) {
 	request := mustEvent(t, "request_chat.json")
+	request.Data["callback"] = map[string]any{
+		"handler": "website.mainpage.translate",
+		"context": map[string]any{},
+	}
 	publisher := &fakePublisher{}
 	ollama := &fakeOllama{err: errors.New("model unavailable")}
 
@@ -50,8 +85,15 @@ func TestHandleOllamaErrorPublishesFailedEvent(t *testing.T) {
 	if response.Type != cloudevent.EventTypeChatFailed {
 		t.Fatalf("Type = %q", response.Type)
 	}
+	if response.Data["status"] != "error" {
+		t.Fatalf("status = %v", response.Data["status"])
+	}
 	if response.Data["error"] != "model unavailable" {
 		t.Fatalf("error = %v", response.Data["error"])
+	}
+	callback, ok := response.Data["callback"].(map[string]any)
+	if !ok || callback["handler"] != "website.mainpage.translate" {
+		t.Fatalf("callback = %v", response.Data["callback"])
 	}
 }
 

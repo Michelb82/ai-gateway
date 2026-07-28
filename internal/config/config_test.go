@@ -12,7 +12,13 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("INPUT_QUEUE", "")
 	t.Setenv("OUTPUT_QUEUE", "")
 	t.Setenv("OLLAMA_URL", "")
-	t.Setenv("OLLAMA_MODEL", "")
+	t.Setenv("OLLAMA_MODEL_ROUTING", "")
+	t.Setenv("OLLAMA_MODEL_INTENT", "")
+	t.Setenv("OLLAMA_MODEL_TRANSLATE", "")
+	t.Setenv("OLLAMA_MODEL_ROUTING_TTL", "")
+	t.Setenv("OLLAMA_MODEL_INTENT_TTL", "")
+	t.Setenv("OLLAMA_MODEL_TRANSLATE_TTL", "")
+	t.Setenv("HTTP_ADDR", "")
 	t.Setenv("BRPOP_TIMEOUT", "")
 	t.Setenv("DEBUG", "")
 
@@ -21,26 +27,17 @@ func TestLoadDefaults(t *testing.T) {
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	if cfg.RedisAddr != "redis:6379" {
-		t.Fatalf("RedisAddr = %q, want redis:6379", cfg.RedisAddr)
+	if cfg.OllamaModelRouting != "qwen3:1.7b-q4_K_M" {
+		t.Fatalf("OllamaModelRouting = %q", cfg.OllamaModelRouting)
 	}
-	if cfg.InputQueue != "ai.requests" {
-		t.Fatalf("InputQueue = %q, want ai.requests", cfg.InputQueue)
+	if cfg.OllamaModelRoutingTTL != "5m" {
+		t.Fatalf("OllamaModelRoutingTTL = %q", cfg.OllamaModelRoutingTTL)
 	}
-	if cfg.OutputQueue != "ai.responses" {
-		t.Fatalf("OutputQueue = %q, want ai.responses", cfg.OutputQueue)
+	if cfg.OllamaModelIntentTTL != "5m" {
+		t.Fatalf("OllamaModelIntentTTL = %q", cfg.OllamaModelIntentTTL)
 	}
-	if cfg.OllamaURL != "http://foundation-model:11434" {
-		t.Fatalf("OllamaURL = %q", cfg.OllamaURL)
-	}
-	if cfg.OllamaModel != "qwen3:14b-q4_K_M" {
-		t.Fatalf("OllamaModel = %q", cfg.OllamaModel)
-	}
-	if cfg.BRPopTimeout != 5 {
-		t.Fatalf("BRPopTimeout = %d, want 5", cfg.BRPopTimeout)
-	}
-	if cfg.Debug {
-		t.Fatalf("Debug = true, want false")
+	if cfg.OllamaModelTranslateTTL != "2m" {
+		t.Fatalf("OllamaModelTranslateTTL = %q", cfg.OllamaModelTranslateTTL)
 	}
 }
 
@@ -49,7 +46,13 @@ func TestLoadOverrides(t *testing.T) {
 	t.Setenv("INPUT_QUEUE", "custom.in")
 	t.Setenv("OUTPUT_QUEUE", "custom.out")
 	t.Setenv("OLLAMA_URL", "http://ollama:11434/")
-	t.Setenv("OLLAMA_MODEL", "custom-model")
+	t.Setenv("OLLAMA_MODEL_ROUTING", "routing-model")
+	t.Setenv("OLLAMA_MODEL_INTENT", "intent-model")
+	t.Setenv("OLLAMA_MODEL_TRANSLATE", "translate-model")
+	t.Setenv("OLLAMA_MODEL_ROUTING_TTL", "10m")
+	t.Setenv("OLLAMA_MODEL_INTENT_TTL", "3m")
+	t.Setenv("OLLAMA_MODEL_TRANSLATE_TTL", "90s")
+	t.Setenv("HTTP_ADDR", ":8080")
 	t.Setenv("BRPOP_TIMEOUT", "10")
 	t.Setenv("DEBUG", "true")
 
@@ -58,26 +61,17 @@ func TestLoadOverrides(t *testing.T) {
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	if cfg.RedisAddr != "localhost:6380" {
-		t.Fatalf("RedisAddr = %q", cfg.RedisAddr)
+	if cfg.OllamaModelTranslate != "translate-model" {
+		t.Fatalf("OllamaModelTranslate = %q", cfg.OllamaModelTranslate)
 	}
-	if cfg.InputQueue != "custom.in" {
-		t.Fatalf("InputQueue = %q", cfg.InputQueue)
+	if cfg.OllamaModelRoutingTTL != "10m" {
+		t.Fatalf("OllamaModelRoutingTTL = %q", cfg.OllamaModelRoutingTTL)
 	}
-	if cfg.OutputQueue != "custom.out" {
-		t.Fatalf("OutputQueue = %q", cfg.OutputQueue)
+	if cfg.OllamaModelIntentTTL != "3m" {
+		t.Fatalf("OllamaModelIntentTTL = %q", cfg.OllamaModelIntentTTL)
 	}
-	if cfg.OllamaURL != "http://ollama:11434" {
-		t.Fatalf("OllamaURL = %q", cfg.OllamaURL)
-	}
-	if cfg.OllamaModel != "custom-model" {
-		t.Fatalf("OllamaModel = %q", cfg.OllamaModel)
-	}
-	if cfg.BRPopTimeout != 10 {
-		t.Fatalf("BRPopTimeout = %d", cfg.BRPopTimeout)
-	}
-	if !cfg.Debug {
-		t.Fatalf("Debug = false, want true")
+	if cfg.OllamaModelTranslateTTL != "90s" {
+		t.Fatalf("OllamaModelTranslateTTL = %q", cfg.OllamaModelTranslateTTL)
 	}
 }
 

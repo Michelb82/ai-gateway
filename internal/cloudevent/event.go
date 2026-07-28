@@ -119,6 +119,14 @@ func (e *Event) ToJSON() (string, error) {
 }
 
 func NewResponse(request *Event, responseType string, data map[string]any) *Event {
+	merged := map[string]any{}
+	for key, value := range request.Data {
+		merged[key] = value
+	}
+	for key, value := range data {
+		merged[key] = value
+	}
+
 	return &Event{
 		Type:            responseType,
 		Source:          "/ai-gateway",
@@ -127,7 +135,7 @@ func NewResponse(request *Event, responseType string, data map[string]any) *Even
 		OrganisationID:  request.OrganisationID,
 		Time:            time.Now().UTC(),
 		DataContentType: DataContentTypeJSON,
-		Data:            data,
+		Data:            merged,
 	}
 }
 

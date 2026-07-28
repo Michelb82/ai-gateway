@@ -7,89 +7,65 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/buildright/construction-ai-gateway/internal/capability"
 	"github.com/buildright/construction-ai-gateway/internal/cloudevent"
 )
 
-func TestHandleSuccessPublishesCompletedEvent(t *testing.T) {
-	request := mustEvent(t, "request_chat.json")
-	publisher := &fakePublisher{}
-	ollama := &fakeOllama{result: "Hello world"}
-
-	w := New(nil, publisher, ollama, "default-model", nil)
-	if err := w.handle(context.Background(), request); err != nil {
-		t.Fatalf("handle() error = %v", err)
-	}
-
-	if len(publisher.events) != 1 {
-		t.Fatalf("published events = %d, want 1", len(publisher.events))
-	}
-
-	response := publisher.events[0]
-	if response.Type != cloudevent.EventTypeChatCompleted {
-		t.Fatalf("Type = %q", response.Type)
-	}
-	if response.Subject == nil || *response.Subject != request.ID {
-		t.Fatalf("Subject = %v, want %q", response.Subject, request.ID)
-	}
-	if response.Data["status"] != "ok" {
-		t.Fatalf("status = %v", response.Data["status"])
-	}
-	if response.Data["content"] != "Hello world" {
-		t.Fatalf("content = %v", response.Data["content"])
-	}
-	if response.Data["result"] != "Hello world" {
-		t.Fatalf("result = %v", response.Data["result"])
-	}
+func testRegistry() *capability.Registry {
+	return capability.NewRegistry(
+		capability.ModelBinding{Model: "qwen3:1.7b-q4_K_M", KeepAlive: "5m"},
+		capability.ModelBinding{Model: "qwen3:4b-q4_K_M", KeepAlive: "5m"},
+		capability.ModelBinding{Model: "qwen3:14b-q4_K_M", KeepAlive: "2m"},
+	)
 }
 
-func TestHandleSuccessEchoesCallback(t *testing.T) {
-	request := mustEvent(t, "request_chat.json")
-	request.Data["callback"] = map[string]any{
-		"handler": "website.mainpage.translate",
-		"context": map[string]any{
-			"service_id": float64(42),
-		},
-	}
+func TestHandleIntentSuccess(t *testing.T) {
+	request := mustEvent(t, "request_intent.json")
 	publisher := &fakePublisher{}
-	ollama := &fakeOllama{result: "translated"}
+	ollama := &fakeOllama{result: `{"intent":"wall-painting","confidence":0.95}`}
+	models := &fakeModels{available: true}
 
-	w := New(nil, publisher, ollama, "default-model", nil)
-	if err := w.handle(context.Background(), request); err != nil {
-		t.Fatalf("handle() error = %v", err)
-	}
-
-	callback, ok := publisher.events[0].Data["callback"].(map[string]any)
-	if !ok {
-		t.Fatalf("callback missing or wrong type: %v", publisher.events[0].Data["callback"])
-	}
-	if callback["handler"] != "website.mainpage.translate" {
-		t.Fatalf("callback.handler = %v", callback["handler"])
-	}
-}
-
-func TestHandleOllamaErrorPublishesFailedEvent(t *testing.T) {
-	request := mustEvent(t, "request_chat.json")
-	request.Data["callback"] = map[string]any{
-		"handler": "website.mainpage.translate",
-		"context": map[string]any{},
-	}
-	publisher := &fakePublisher{}
-	ollama := &fakeOllama{err: errors.New("model unavailable")}
-
-	w := New(nil, publisher, ollama, "default-model", nil)
+	w := New(nil, publisher, ollama, models, testRegistry(), nil)
 	if err := w.handle(context.Background(), request); err != nil {
 		t.Fatalf("handle() error = %v", err)
 	}
 
 	response := publisher.events[0]
-	if response.Type != cloudevent.EventTypeChatFailed {
+	if response.Type != cloudevent.EventTypeRequestCompleted {
 		t.Fatalf("Type = %q", response.Type)
 	}
-	if response.Data["status"] != "error" {
-		t.Fatalf("status = %v", response.Data["status"])
+	if _, ok := response.Data["model"]; ok {
+		t.Fatalf("success payload must not include model")
 	}
-	if response.Data["error"] != "model unavailable" {
-		t.Fatalf("error = %v", response.Data["error"])
+	input, ok := response.Data["input"].(map[string]any)
+	if !ok || input["message"] != "I need my living room painted" {
+		t.Fatalf("expected request input echoed, got %v", response.Data["input"])
+	}
+	if response.Data["capability"] != "intent-classification" {
+		t.Fatalf("capability = %v", response.Data["capability"])
+	}
+	if ollama.model != "qwen3:4b-q4_K_M" {
+		t.Fatalf("model used = %q", ollama.model)
+	}
+	if ollama.keepAlive != "5m" {
+		t.Fatalf("intent keepAlive = %q, want 5m", ollama.keepAlive)
+	}
+}
+
+func TestHandleRoutingSuccess(t *testing.T) {
+	request := mustEvent(t, "request_routing.json")
+	publisher := &fakePublisher{}
+	ollama := &fakeOllama{result: `{"capability":"intent-classification"}`}
+	models := &fakeModels{available: true}
+
+	w := New(nil, publisher, ollama, models, testRegistry(), nil)
+	if err := w.handle(context.Background(), request); err != nil {
+		t.Fatalf("handle() error = %v", err)
+	}
+
+	result := publisher.events[0].Data["result"].(map[string]any)
+	if result["capability"] != "intent-classification" {
+		t.Fatalf("result = %v", result)
 	}
 	callback, ok := response.Data["callback"].(map[string]any)
 	if !ok || callback["handler"] != "website.mainpage.translate" {
@@ -97,12 +73,13 @@ func TestHandleOllamaErrorPublishesFailedEvent(t *testing.T) {
 	}
 }
 
-func TestHandleTranslationPayloadMapping(t *testing.T) {
-	request := mustEvent(t, "request_translation.json")
+func TestHandleTranslateSuccess(t *testing.T) {
+	request := mustEvent(t, "request_translate.json")
 	publisher := &fakePublisher{}
-	ollama := &fakeOllama{result: "Electrical installations for homes"}
+	ollama := &fakeOllama{result: `{"text":"Electrical installations for homes"}`}
+	models := &fakeModels{available: true}
 
-	w := New(nil, publisher, ollama, "default-model", nil)
+	w := New(nil, publisher, ollama, models, testRegistry(), nil)
 	if err := w.handle(context.Background(), request); err != nil {
 		t.Fatalf("handle() error = %v", err)
 	}
@@ -110,26 +87,94 @@ func TestHandleTranslationPayloadMapping(t *testing.T) {
 	if ollama.prompt != "Elektrische installaties voor woningen" {
 		t.Fatalf("prompt = %q", ollama.prompt)
 	}
-}
-
-func TestResolvePromptsChatPayload(t *testing.T) {
-	systemPrompt, prompt, model, err := resolvePrompts(map[string]any{
-		"system_prompt": "system",
-		"prompt":        "hello",
-		"model":         "custom",
-	}, "default")
-	if err != nil {
-		t.Fatalf("resolvePrompts() error = %v", err)
+	if ollama.model != "qwen3:14b-q4_K_M" {
+		t.Fatalf("model = %q", ollama.model)
 	}
-	if systemPrompt != "system" || prompt != "hello" || model != "custom" {
-		t.Fatalf("got %q %q %q", systemPrompt, prompt, model)
+	if ollama.keepAlive != "2m" {
+		t.Fatalf("keepAlive = %q", ollama.keepAlive)
+	}
+	result := publisher.events[0].Data["result"].(map[string]any)
+	if result["text"] != "Electrical installations for homes" {
+		t.Fatalf("result = %v", result)
 	}
 }
 
-func TestResolvePromptsMissingPayload(t *testing.T) {
-	_, _, _, err := resolvePrompts(map[string]any{}, "default")
-	if err == nil {
-		t.Fatalf("resolvePrompts() expected error")
+func TestHandleModelUnavailable(t *testing.T) {
+	request := mustEvent(t, "request_intent.json")
+	publisher := &fakePublisher{}
+	ollama := &fakeOllama{result: `{"intent":"x","confidence":1}`}
+	models := &fakeModels{available: false}
+
+	w := New(nil, publisher, ollama, models, testRegistry(), nil)
+	if err := w.handle(context.Background(), request); err != nil {
+		t.Fatalf("handle() error = %v", err)
+	}
+
+	response := publisher.events[0]
+	if response.Type != cloudevent.EventTypeRequestFailed {
+		t.Fatalf("Type = %q", response.Type)
+	}
+	if ollama.called {
+		t.Fatalf("Complete should not be called when model unavailable")
+	}
+}
+
+func TestHandleUnknownCapability(t *testing.T) {
+	event := &cloudevent.Event{
+		Type:   cloudevent.EventTypeRequest,
+		Source: "/test",
+		ID:     "1",
+		Data: map[string]any{
+			"capability": "unknown",
+			"input":      map[string]any{"message": "hi"},
+		},
+	}
+	publisher := &fakePublisher{}
+	w := New(nil, publisher, &fakeOllama{}, &fakeModels{available: true}, testRegistry(), nil)
+	_ = w.handle(context.Background(), event)
+	if publisher.events[0].Type != cloudevent.EventTypeRequestFailed {
+		t.Fatalf("Type = %q", publisher.events[0].Type)
+	}
+}
+
+func TestHandleRejectsCallerModel(t *testing.T) {
+	event := &cloudevent.Event{
+		Type:   cloudevent.EventTypeRequest,
+		Source: "/test",
+		ID:     "1",
+		Data: map[string]any{
+			"capability": "routing",
+			"model":      "sneaky",
+			"input":      map[string]any{"message": "hi"},
+		},
+	}
+	publisher := &fakePublisher{}
+	w := New(nil, publisher, &fakeOllama{}, &fakeModels{available: true}, testRegistry(), nil)
+	_ = w.handle(context.Background(), event)
+	if publisher.events[0].Type != cloudevent.EventTypeRequestFailed {
+		t.Fatalf("Type = %q", publisher.events[0].Type)
+	}
+}
+
+func TestHandleOllamaError(t *testing.T) {
+	request := mustEvent(t, "request_intent.json")
+	publisher := &fakePublisher{}
+	ollama := &fakeOllama{err: errors.New("boom")}
+	w := New(nil, publisher, ollama, &fakeModels{available: true}, testRegistry(), nil)
+	_ = w.handle(context.Background(), request)
+	if publisher.events[0].Data["error"] != "boom" {
+		t.Fatalf("error = %v", publisher.events[0].Data["error"])
+	}
+}
+
+func TestHandleUnparseableOutput(t *testing.T) {
+	request := mustEvent(t, "request_intent.json")
+	publisher := &fakePublisher{}
+	ollama := &fakeOllama{result: "not-json"}
+	w := New(nil, publisher, ollama, &fakeModels{available: true}, testRegistry(), nil)
+	_ = w.handle(context.Background(), request)
+	if publisher.events[0].Type != cloudevent.EventTypeRequestFailed {
+		t.Fatalf("Type = %q", publisher.events[0].Type)
 	}
 }
 
@@ -158,15 +203,33 @@ func (f *fakePublisher) Publish(ctx context.Context, event *cloudevent.Event) er
 type fakeOllama struct {
 	systemPrompt string
 	prompt       string
+	model        string
+	keepAlive    string
 	result       string
 	err          error
+	called       bool
 }
 
-func (f *fakeOllama) Complete(ctx context.Context, systemPrompt, prompt, model string) (string, error) {
+func (f *fakeOllama) Complete(ctx context.Context, systemPrompt, prompt, model, keepAlive string) (string, error) {
+	f.called = true
 	f.systemPrompt = systemPrompt
 	f.prompt = prompt
+	f.model = model
+	f.keepAlive = keepAlive
 	if f.err != nil {
 		return "", f.err
 	}
 	return f.result, nil
+}
+
+type fakeModels struct {
+	available bool
+	err       error
+}
+
+func (f *fakeModels) ModelAvailable(ctx context.Context, name string) (bool, error) {
+	if f.err != nil {
+		return false, f.err
+	}
+	return f.available, nil
 }

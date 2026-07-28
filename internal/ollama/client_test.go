@@ -2,6 +2,7 @@ package ollama_test
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -24,8 +25,8 @@ func TestCompleteSuccess(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := ollama.NewClient(server.URL, "test-model")
-	result, err := client.Complete(context.Background(), "system", "user prompt", "")
+	client := ollama.NewClient(server.URL)
+	result, err := client.Complete(context.Background(), "system", "user prompt", "test-model", "")
 	if err != nil {
 		t.Fatalf("Complete() error = %v", err)
 	}
@@ -40,8 +41,8 @@ func TestCompleteHTTPError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := ollama.NewClient(server.URL, "test-model")
-	_, err := client.Complete(context.Background(), "system", "user prompt", "")
+	client := ollama.NewClient(server.URL)
+	_, err := client.Complete(context.Background(), "system", "user prompt", "test-model", "")
 	if err == nil {
 		t.Fatalf("Complete() expected error")
 	}
@@ -54,24 +55,87 @@ func TestCompleteEmptyChoices(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := ollama.NewClient(server.URL, "test-model")
-	_, err := client.Complete(context.Background(), "system", "user prompt", "")
+	client := ollama.NewClient(server.URL)
+	_, err := client.Complete(context.Background(), "system", "user prompt", "test-model", "")
 	if err == nil {
 		t.Fatalf("Complete() expected error")
 	}
 }
 
 func TestCompleteValidation(t *testing.T) {
-	client := ollama.NewClient("http://example.com", "test-model")
+	client := ollama.NewClient("http://example.com")
 
-	_, err := client.Complete(context.Background(), "system", "", "")
+	_, err := client.Complete(context.Background(), "system", "", "model", "")
 	if err == nil {
 		t.Fatalf("Complete() expected error for empty prompt")
 	}
 
-	_, err = client.Complete(context.Background(), "", "prompt", "")
+	_, err = client.Complete(context.Background(), "", "prompt", "model", "")
 	if err == nil {
 		t.Fatalf("Complete() expected error for empty system prompt")
+	}
+
+	_, err = client.Complete(context.Background(), "system", "prompt", "", "")
+	if err == nil {
+		t.Fatalf("Complete() expected error for empty model")
+	}
+}
+
+func TestCompleteKeepAlive(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		if body["keep_alive"] != "2m" {
+			t.Fatalf("keep_alive = %v", body["keep_alive"])
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(readFixture(t, "ollama_response.json"))
+	}))
+	defer server.Close()
+
+	client := ollama.NewClient(server.URL)
+	_, err := client.Complete(context.Background(), "system", "prompt", "model", "2m")
+	if err != nil {
+		t.Fatalf("Complete() error = %v", err)
+	}
+}
+
+func TestModelAvailable(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/tags" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"models":[{"name":"qwen3:1.7b"},{"name":"qwen3:4b"}]}`))
+	}))
+	defer server.Close()
+
+	client := ollama.NewClient(server.URL)
+	ok, err := client.ModelAvailable(context.Background(), "qwen3:4b")
+	if err != nil {
+		t.Fatalf("ModelAvailable() error = %v", err)
+	}
+	if !ok {
+		t.Fatalf("expected model available")
+	}
+
+	ok, err = client.ModelAvailable(context.Background(), "missing")
+	if err != nil {
+		t.Fatalf("ModelAvailable() error = %v", err)
+	}
+	if ok {
+		t.Fatalf("expected model unavailable")
+	}
+}
+
+func TestListModelsUnreachable(t *testing.T) {
+	client := ollama.NewClient("http://127.0.0.1:1")
+	_, err := client.ListModels(context.Background())
+	if err == nil {
+		t.Fatalf("ListModels() expected error")
 	}
 }
 

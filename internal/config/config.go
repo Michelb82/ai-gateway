@@ -8,24 +8,36 @@ import (
 )
 
 type Config struct {
-	RedisAddr    string
-	InputQueue   string
-	OutputQueue  string
-	OllamaURL    string
-	OllamaModel  string
-	BRPopTimeout int
-	Debug        bool
+	RedisAddr               string
+	InputQueue              string
+	OutputQueue             string
+	OllamaURL               string
+	OllamaModelRouting      string
+	OllamaModelIntent       string
+	OllamaModelTranslate    string
+	OllamaModelRoutingTTL   string
+	OllamaModelIntentTTL    string
+	OllamaModelTranslateTTL string
+	HTTPAddr                string
+	BRPopTimeout            int
+	Debug                   bool
 }
 
 func Load() (Config, error) {
 	cfg := Config{
-		RedisAddr:    envOrDefault("REDIS_ADDR", "redis:6379"),
-		InputQueue:   envOrDefault("INPUT_QUEUE", "ai.requests"),
-		OutputQueue:  envOrDefault("OUTPUT_QUEUE", "ai.responses"),
-		OllamaURL:    strings.TrimRight(envOrDefault("OLLAMA_URL", "http://foundation-model:11434"), "/"),
-		OllamaModel:  envOrDefault("OLLAMA_MODEL", "qwen3:14b-q4_K_M"),
-		BRPopTimeout: 5,
-		Debug:        envBool("DEBUG"),
+		RedisAddr:               envOrDefault("REDIS_ADDR", "redis:6379"),
+		InputQueue:              envOrDefault("INPUT_QUEUE", "ai.requests"),
+		OutputQueue:             envOrDefault("OUTPUT_QUEUE", "ai.responses"),
+		OllamaURL:               strings.TrimRight(envOrDefault("OLLAMA_URL", "http://foundation-model:11434"), "/"),
+		OllamaModelRouting:      envOrDefault("OLLAMA_MODEL_ROUTING", "qwen3:1.7b-q4_K_M"),
+		OllamaModelIntent:       envOrDefault("OLLAMA_MODEL_INTENT", "qwen3:4b-q4_K_M"),
+		OllamaModelTranslate:    envOrDefault("OLLAMA_MODEL_TRANSLATE", "qwen3:14b-q4_K_M"),
+		OllamaModelRoutingTTL:   envOrDefault("OLLAMA_MODEL_ROUTING_TTL", "5m"),
+		OllamaModelIntentTTL:    envOrDefault("OLLAMA_MODEL_INTENT_TTL", "5m"),
+		OllamaModelTranslateTTL: envOrDefault("OLLAMA_MODEL_TRANSLATE_TTL", "2m"),
+		HTTPAddr:                envOrDefault("HTTP_ADDR", ":80"),
+		BRPopTimeout:            5,
+		Debug:                   envBool("DEBUG"),
 	}
 
 	timeoutRaw := strings.TrimSpace(os.Getenv("BRPOP_TIMEOUT"))
@@ -49,8 +61,26 @@ func Load() (Config, error) {
 	if cfg.OllamaURL == "" {
 		return Config{}, fmt.Errorf("OLLAMA_URL must not be blank")
 	}
-	if cfg.OllamaModel == "" {
-		return Config{}, fmt.Errorf("OLLAMA_MODEL must not be blank")
+	if cfg.OllamaModelRouting == "" {
+		return Config{}, fmt.Errorf("OLLAMA_MODEL_ROUTING must not be blank")
+	}
+	if cfg.OllamaModelIntent == "" {
+		return Config{}, fmt.Errorf("OLLAMA_MODEL_INTENT must not be blank")
+	}
+	if cfg.OllamaModelTranslate == "" {
+		return Config{}, fmt.Errorf("OLLAMA_MODEL_TRANSLATE must not be blank")
+	}
+	if cfg.OllamaModelRoutingTTL == "" {
+		return Config{}, fmt.Errorf("OLLAMA_MODEL_ROUTING_TTL must not be blank")
+	}
+	if cfg.OllamaModelIntentTTL == "" {
+		return Config{}, fmt.Errorf("OLLAMA_MODEL_INTENT_TTL must not be blank")
+	}
+	if cfg.OllamaModelTranslateTTL == "" {
+		return Config{}, fmt.Errorf("OLLAMA_MODEL_TRANSLATE_TTL must not be blank")
+	}
+	if cfg.HTTPAddr == "" {
+		return Config{}, fmt.Errorf("HTTP_ADDR must not be blank")
 	}
 
 	return cfg, nil

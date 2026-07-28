@@ -8,12 +8,13 @@ import (
 )
 
 type Config struct {
-	RedisAddr     string
-	InputQueue    string
-	OutputQueue   string
-	OllamaURL     string
-	OllamaModel   string
-	BRPopTimeout  int
+	RedisAddr    string
+	InputQueue   string
+	OutputQueue  string
+	OllamaURL    string
+	OllamaModel  string
+	BRPopTimeout int
+	Debug        bool
 }
 
 func Load() (Config, error) {
@@ -24,6 +25,7 @@ func Load() (Config, error) {
 		OllamaURL:    strings.TrimRight(envOrDefault("OLLAMA_URL", "http://foundation-model:11434"), "/"),
 		OllamaModel:  envOrDefault("OLLAMA_MODEL", "qwen3:14b-q4_K_M"),
 		BRPopTimeout: 5,
+		Debug:        envBool("DEBUG"),
 	}
 
 	timeoutRaw := strings.TrimSpace(os.Getenv("BRPOP_TIMEOUT"))
@@ -59,4 +61,13 @@ func envOrDefault(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func envBool(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }

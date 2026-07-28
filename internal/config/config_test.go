@@ -12,7 +12,9 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("INPUT_QUEUE", "")
 	t.Setenv("OUTPUT_QUEUE", "")
 	t.Setenv("OLLAMA_URL", "")
-	t.Setenv("OLLAMA_MODEL", "")
+	t.Setenv("OLLAMA_MODEL_ROUTING", "")
+	t.Setenv("OLLAMA_MODEL_INTENT", "")
+	t.Setenv("HTTP_ADDR", "")
 	t.Setenv("BRPOP_TIMEOUT", "")
 	t.Setenv("DEBUG", "")
 
@@ -33,8 +35,14 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.OllamaURL != "http://foundation-model:11434" {
 		t.Fatalf("OllamaURL = %q", cfg.OllamaURL)
 	}
-	if cfg.OllamaModel != "qwen3:14b-q4_K_M" {
-		t.Fatalf("OllamaModel = %q", cfg.OllamaModel)
+	if cfg.OllamaModelRouting != "qwen3:1.7b" {
+		t.Fatalf("OllamaModelRouting = %q", cfg.OllamaModelRouting)
+	}
+	if cfg.OllamaModelIntent != "qwen3:4b" {
+		t.Fatalf("OllamaModelIntent = %q", cfg.OllamaModelIntent)
+	}
+	if cfg.HTTPAddr != ":80" {
+		t.Fatalf("HTTPAddr = %q", cfg.HTTPAddr)
 	}
 	if cfg.BRPopTimeout != 5 {
 		t.Fatalf("BRPopTimeout = %d, want 5", cfg.BRPopTimeout)
@@ -49,7 +57,9 @@ func TestLoadOverrides(t *testing.T) {
 	t.Setenv("INPUT_QUEUE", "custom.in")
 	t.Setenv("OUTPUT_QUEUE", "custom.out")
 	t.Setenv("OLLAMA_URL", "http://ollama:11434/")
-	t.Setenv("OLLAMA_MODEL", "custom-model")
+	t.Setenv("OLLAMA_MODEL_ROUTING", "routing-model")
+	t.Setenv("OLLAMA_MODEL_INTENT", "intent-model")
+	t.Setenv("HTTP_ADDR", ":8080")
 	t.Setenv("BRPOP_TIMEOUT", "10")
 	t.Setenv("DEBUG", "true")
 
@@ -70,8 +80,14 @@ func TestLoadOverrides(t *testing.T) {
 	if cfg.OllamaURL != "http://ollama:11434" {
 		t.Fatalf("OllamaURL = %q", cfg.OllamaURL)
 	}
-	if cfg.OllamaModel != "custom-model" {
-		t.Fatalf("OllamaModel = %q", cfg.OllamaModel)
+	if cfg.OllamaModelRouting != "routing-model" {
+		t.Fatalf("OllamaModelRouting = %q", cfg.OllamaModelRouting)
+	}
+	if cfg.OllamaModelIntent != "intent-model" {
+		t.Fatalf("OllamaModelIntent = %q", cfg.OllamaModelIntent)
+	}
+	if cfg.HTTPAddr != ":8080" {
+		t.Fatalf("HTTPAddr = %q", cfg.HTTPAddr)
 	}
 	if cfg.BRPopTimeout != 10 {
 		t.Fatalf("BRPopTimeout = %d", cfg.BRPopTimeout)

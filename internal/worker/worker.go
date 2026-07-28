@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/buildright/construction-ai-gateway/internal/capability"
 	"github.com/buildright/construction-ai-gateway/internal/cloudevent"
 )
 
@@ -21,15 +22,27 @@ type ChatCompleter interface {
 	Complete(ctx context.Context, systemPrompt, prompt, model string) (string, error)
 }
 
+type ModelChecker interface {
+	ModelAvailable(ctx context.Context, name string) (bool, error)
+}
+
 type Worker struct {
 	consumer  RequestConsumer
 	publisher ResponsePublisher
 	ollama    ChatCompleter
+	models    ModelChecker
+	registry  *capability.Registry
 	logger    *slog.Logger
-	model     string
 }
 
-func New(consumer RequestConsumer, publisher ResponsePublisher, ollama ChatCompleter, model string, logger *slog.Logger) *Worker {
+func New(
+	consumer RequestConsumer,
+	publisher ResponsePublisher,
+	ollama ChatCompleter,
+	models ModelChecker,
+	registry *capability.Registry,
+	logger *slog.Logger,
+) *Worker {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -37,8 +50,9 @@ func New(consumer RequestConsumer, publisher ResponsePublisher, ollama ChatCompl
 		consumer:  consumer,
 		publisher: publisher,
 		ollama:    ollama,
+		models:    models,
+		registry:  registry,
 		logger:    logger,
-		model:     model,
 	}
 }
 
@@ -68,29 +82,66 @@ func (w *Worker) Run(ctx context.Context) error {
 }
 
 func (w *Worker) handle(ctx context.Context, event *cloudevent.Event) error {
-	systemPrompt, prompt, model, err := resolvePrompts(event.Data, w.model)
+	capabilityName, message, err := parseRequest(event)
 	if err != nil {
-		return w.publishFailure(ctx, event, err)
+		return w.publishFailure(ctx, event, capabilityName, err)
 	}
 
-	result, err := w.ollama.Complete(ctx, systemPrompt, prompt, model)
-	if err != nil {
-		return w.publishFailure(ctx, event, err)
+	if priority := stringValue(event.Data["priority"]); priority != "" {
+		w.logger.Info("request priority ignored",
+			"request_id", event.ID,
+			"capability", capabilityName,
+			"priority", priority,
+		)
 	}
 
-	response := cloudevent.NewResponse(event, cloudevent.EventTypeChatCompleted, map[string]any{
-		"result":       result,
-		"model":        chooseModel(model, w.model),
-		"request_type": event.Type,
+	def, err := w.registry.Get(capabilityName)
+	if err != nil {
+		return w.publishFailure(ctx, event, capabilityName, err)
+	}
+
+	available, err := w.models.ModelAvailable(ctx, def.Model)
+	if err != nil {
+		w.logger.Error("model availability check failed",
+			"capability", capabilityName,
+			"model", def.Model,
+			"error", err,
+		)
+		return w.publishFailure(ctx, event, capabilityName, fmt.Errorf("model unavailable: %v", err))
+	}
+	if !available {
+		w.logger.Error("model unavailable",
+			"capability", capabilityName,
+			"model", def.Model,
+		)
+		return w.publishFailure(ctx, event, capabilityName, fmt.Errorf("model unavailable: %s is not present on Ollama", def.Model))
+	}
+
+	raw, err := w.ollama.Complete(ctx, def.SystemPrompt, message, def.Model)
+	if err != nil {
+		return w.publishFailure(ctx, event, capabilityName, err)
+	}
+
+	result, err := capability.ParseResult(capabilityName, raw)
+	if err != nil {
+		return w.publishFailure(ctx, event, capabilityName, err)
+	}
+
+	response := cloudevent.NewResponse(event, cloudevent.EventTypeRequestCompleted, map[string]any{
+		"capability": capabilityName,
+		"result":     result,
 	})
 	return w.publish(ctx, event, response)
 }
 
-func (w *Worker) publishFailure(ctx context.Context, event *cloudevent.Event, cause error) error {
-	response := cloudevent.NewResponse(event, cloudevent.EventTypeChatFailed, map[string]any{
-		"error":        cause.Error(),
-		"request_type": event.Type,
-	})
+func (w *Worker) publishFailure(ctx context.Context, event *cloudevent.Event, capabilityName string, cause error) error {
+	data := map[string]any{
+		"error": cause.Error(),
+	}
+	if strings.TrimSpace(capabilityName) != "" {
+		data["capability"] = capabilityName
+	}
+	response := cloudevent.NewResponse(event, cloudevent.EventTypeRequestFailed, data)
 	return w.publish(ctx, event, response)
 }
 
@@ -105,60 +156,28 @@ func (w *Worker) publish(ctx context.Context, request *cloudevent.Event, respons
 	return nil
 }
 
-func resolvePrompts(data map[string]any, defaultModel string) (string, string, string, error) {
-	model := stringValue(data["model"])
-	if model == "" {
-		model = defaultModel
+func parseRequest(event *cloudevent.Event) (capabilityName string, message string, err error) {
+	if event.Type != cloudevent.EventTypeRequest {
+		return "", "", fmt.Errorf("unsupported event type: %s", event.Type)
+	}
+	if _, hasModel := event.Data["model"]; hasModel {
+		return stringValue(event.Data["capability"]), "", fmt.Errorf("data.model is not allowed; models are selected by the AI gateway")
 	}
 
-	if prompt := stringValue(data["prompt"]); prompt != "" {
-		systemPrompt := stringValue(data["system_prompt"])
-		if systemPrompt == "" {
-			systemPrompt = "You are a helpful assistant."
-		}
-		return systemPrompt, prompt, model, nil
+	capabilityName = stringValue(event.Data["capability"])
+	if capabilityName == "" {
+		return "", "", fmt.Errorf("data.capability is required")
 	}
 
-	text := stringValue(data["text"])
-	sourceLocale := stringValue(data["source_locale"])
-	targetLocale := stringValue(data["target_locale"])
-	if text == "" {
-		return "", "", "", fmt.Errorf("invalid event payload: prompt or text is required")
+	input, _ := event.Data["input"].(map[string]any)
+	if input == nil {
+		return capabilityName, "", fmt.Errorf("data.input is required")
 	}
-	if sourceLocale == "" {
-		sourceLocale = "nl"
+	message = stringValue(input["message"])
+	if message == "" {
+		return capabilityName, "", fmt.Errorf("data.input.message is required")
 	}
-	if targetLocale == "" {
-		targetLocale = "en"
-	}
-
-	sourceLabel := localeLabel(sourceLocale)
-	targetLabel := localeLabel(targetLocale)
-	systemPrompt := fmt.Sprintf(
-		"You are a professional translator for a construction services website. Translate the following service description from %s to %s. Return ONLY the translated text with no quotes, markdown, or explanation.",
-		sourceLabel,
-		targetLabel,
-	)
-
-	return systemPrompt, text, model, nil
-}
-
-func localeLabel(locale string) string {
-	switch strings.ToLower(strings.TrimSpace(locale)) {
-	case "nl":
-		return "Dutch"
-	case "en":
-		return "English"
-	default:
-		return locale
-	}
-}
-
-func chooseModel(requestModel, defaultModel string) string {
-	if strings.TrimSpace(requestModel) != "" {
-		return requestModel
-	}
-	return defaultModel
+	return capabilityName, message, nil
 }
 
 func stringValue(value any) string {

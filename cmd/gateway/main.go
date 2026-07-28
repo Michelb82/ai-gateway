@@ -4,11 +4,15 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	"github.com/buildright/construction-ai-gateway/internal/capability"
 	"github.com/buildright/construction-ai-gateway/internal/config"
+	"github.com/buildright/construction-ai-gateway/internal/health"
 	"github.com/buildright/construction-ai-gateway/internal/ollama"
 	"github.com/buildright/construction-ai-gateway/internal/queue"
 	"github.com/buildright/construction-ai-gateway/internal/worker"
@@ -51,21 +55,43 @@ func main() {
 		os.Exit(1)
 	}
 
+	registry := capability.NewRegistry(cfg.OllamaModelRouting, cfg.OllamaModelIntent)
 	eventQueue := queue.NewRedisQueue(redisClient, cfg.InputQueue, cfg.OutputQueue, cfg.BRPopTimeout)
-	ollamaClient := ollama.NewClient(cfg.OllamaURL, cfg.OllamaModel)
-	appWorker := worker.New(eventQueue, eventQueue, ollamaClient, cfg.OllamaModel, logger)
+	ollamaClient := ollama.NewClient(cfg.OllamaURL)
+	appWorker := worker.New(eventQueue, eventQueue, ollamaClient, ollamaClient, registry, logger)
+
+	healthHandler := health.NewHandler(registry, ollamaClient)
+	httpServer := health.NewServer(cfg.HTTPAddr, healthHandler)
+
+	go func() {
+		logger.Info("health server listening", "addr", cfg.HTTPAddr)
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("health server stopped with error", "error", err)
+			stop()
+		}
+	}()
 
 	logger.Info("ai gateway started",
 		"redis_addr", cfg.RedisAddr,
 		"input_queue", cfg.InputQueue,
 		"output_queue", cfg.OutputQueue,
 		"ollama_url", cfg.OllamaURL,
-		"ollama_model", cfg.OllamaModel,
+		"ollama_model_routing", cfg.OllamaModelRouting,
+		"ollama_model_intent", cfg.OllamaModelIntent,
+		"http_addr", cfg.HTTPAddr,
 		"debug", cfg.Debug,
 	)
 
-	if err := appWorker.Run(ctx); err != nil {
-		logger.Error("worker stopped with error", "error", err)
+	workerErr := appWorker.Run(ctx)
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		logger.Error("health server shutdown failed", "error", err)
+	}
+
+	if workerErr != nil {
+		logger.Error("worker stopped with error", "error", workerErr)
 		os.Exit(1)
 	}
 

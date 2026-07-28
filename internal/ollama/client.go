@@ -13,14 +13,12 @@ import (
 
 type Client struct {
 	baseURL    string
-	model      string
 	httpClient *http.Client
 }
 
-func NewClient(baseURL, defaultModel string) *Client {
+func NewClient(baseURL string) *Client {
 	return &Client{
 		baseURL: strings.TrimRight(baseURL, "/"),
-		model:   defaultModel,
 		httpClient: &http.Client{
 			Timeout: 120 * time.Second,
 		},
@@ -28,10 +26,10 @@ func NewClient(baseURL, defaultModel string) *Client {
 }
 
 type chatRequest struct {
-	Model    string        `json:"model"`
-	Messages []chatMessage `json:"messages"`
-	Temperature float64    `json:"temperature"`
-	Think    bool          `json:"think"`
+	Model              string          `json:"model"`
+	Messages           []chatMessage   `json:"messages"`
+	Temperature        float64         `json:"temperature"`
+	Think              bool            `json:"think"`
 	ChatTemplateKwargs map[string]bool `json:"chat_template_kwargs"`
 }
 
@@ -48,23 +46,28 @@ type chatResponse struct {
 	} `json:"choices"`
 }
 
+type tagsResponse struct {
+	Models []struct {
+		Name string `json:"name"`
+	} `json:"models"`
+}
+
 func (c *Client) Complete(ctx context.Context, systemPrompt, prompt, model string) (string, error) {
 	systemPrompt = strings.TrimSpace(systemPrompt)
 	prompt = strings.TrimSpace(prompt)
+	model = strings.TrimSpace(model)
 	if prompt == "" {
 		return "", fmt.Errorf("prompt must not be empty")
 	}
 	if systemPrompt == "" {
 		return "", fmt.Errorf("system prompt must not be empty")
 	}
-
-	selectedModel := strings.TrimSpace(model)
-	if selectedModel == "" {
-		selectedModel = c.model
+	if model == "" {
+		return "", fmt.Errorf("model must not be empty")
 	}
 
 	body := chatRequest{
-		Model: selectedModel,
+		Model: model,
 		Messages: []chatMessage{
 			{Role: "system", Content: systemPrompt},
 			{Role: "user", Content: prompt},
@@ -116,4 +119,59 @@ func (c *Client) Complete(ctx context.Context, systemPrompt, prompt, model strin
 	}
 
 	return content, nil
+}
+
+func (c *Client) ListModels(ctx context.Context) ([]string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/tags", nil)
+	if err != nil {
+		return nil, fmt.Errorf("create tags request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("ollama unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read tags response: %w", err)
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("tags request returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+	}
+
+	var decoded tagsResponse
+	if err := json.Unmarshal(respBody, &decoded); err != nil {
+		return nil, fmt.Errorf("decode tags response: %w", err)
+	}
+
+	names := make([]string, 0, len(decoded.Models))
+	for _, model := range decoded.Models {
+		name := strings.TrimSpace(model.Name)
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	return names, nil
+}
+
+func (c *Client) ModelAvailable(ctx context.Context, name string) (bool, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return false, fmt.Errorf("model name must not be empty")
+	}
+
+	models, err := c.ListModels(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	for _, model := range models {
+		if model == name {
+			return true, nil
+		}
+	}
+	return false, nil
 }

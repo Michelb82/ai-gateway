@@ -10,20 +10,20 @@ import (
 )
 
 func TestFromJSONValid(t *testing.T) {
-	raw := readFixture(t, "request_chat.json")
+	raw := readFixture(t, "request_intent.json")
 
 	event, err := cloudevent.FromJSON(raw)
 	if err != nil {
 		t.Fatalf("FromJSON() error = %v", err)
 	}
 
-	if event.Type != "com.buildright.ai.chat" {
+	if event.Type != cloudevent.EventTypeRequest {
 		t.Fatalf("Type = %q", event.Type)
 	}
-	if event.Source != "/ai-gateway" {
+	if event.Source != "/test" {
 		t.Fatalf("Source = %q", event.Source)
 	}
-	if event.ID != "abc-123" {
+	if event.ID != "intent-1" {
 		t.Fatalf("ID = %q", event.ID)
 	}
 	if event.OrganisationID == nil || *event.OrganisationID != "7" {
@@ -32,13 +32,13 @@ func TestFromJSONValid(t *testing.T) {
 	if event.DataContentType != cloudevent.DataContentTypeJSON {
 		t.Fatalf("DataContentType = %q", event.DataContentType)
 	}
-	if event.Data["prompt"] != "Translate to English: Hallo wereld" {
-		t.Fatalf("prompt = %v", event.Data["prompt"])
+	if event.Data["capability"] != "intent-classification" {
+		t.Fatalf("capability = %v", event.Data["capability"])
 	}
 }
 
 func TestRoundTripJSON(t *testing.T) {
-	raw := readFixture(t, "request_chat.json")
+	raw := readFixture(t, "request_intent.json")
 	event, err := cloudevent.FromJSON(raw)
 	if err != nil {
 		t.Fatalf("FromJSON() error = %v", err)
@@ -88,19 +88,23 @@ func TestFromJSONInvalid(t *testing.T) {
 
 func TestNewResponse(t *testing.T) {
 	request := &cloudevent.Event{
-		Type:           "com.buildright.ai.chat",
+		Type:           cloudevent.EventTypeRequest,
 		Source:         "/test",
 		ID:             "req-1",
 		OrganisationID: strPtr("7"),
 		Time:           time.Now().UTC(),
-		Data:           map[string]any{"prompt": "hello"},
+		Data: map[string]any{
+			"capability": "routing",
+			"input":      map[string]any{"message": "hello"},
+		},
 	}
 
-	response := cloudevent.NewResponse(request, cloudevent.EventTypeChatCompleted, map[string]any{
-		"result": "world",
+	response := cloudevent.NewResponse(request, cloudevent.EventTypeRequestCompleted, map[string]any{
+		"capability": "routing",
+		"result":     map[string]any{"capability": "intent-classification"},
 	})
 
-	if response.Type != cloudevent.EventTypeChatCompleted {
+	if response.Type != cloudevent.EventTypeRequestCompleted {
 		t.Fatalf("Type = %q", response.Type)
 	}
 	if response.Subject == nil || *response.Subject != "req-1" {

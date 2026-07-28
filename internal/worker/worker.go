@@ -19,7 +19,7 @@ type ResponsePublisher interface {
 }
 
 type ChatCompleter interface {
-	Complete(ctx context.Context, systemPrompt, prompt, model string) (string, error)
+	Complete(ctx context.Context, systemPrompt, prompt, model, keepAlive string) (string, error)
 }
 
 type ModelChecker interface {
@@ -82,7 +82,7 @@ func (w *Worker) Run(ctx context.Context) error {
 }
 
 func (w *Worker) handle(ctx context.Context, event *cloudevent.Event) error {
-	capabilityName, message, err := parseRequest(event)
+	capabilityName, input, err := parseRequest(event)
 	if err != nil {
 		return w.publishFailure(ctx, event, capabilityName, err)
 	}
@@ -117,7 +117,12 @@ func (w *Worker) handle(ctx context.Context, event *cloudevent.Event) error {
 		return w.publishFailure(ctx, event, capabilityName, fmt.Errorf("model unavailable: %s is not present on Ollama", def.Model))
 	}
 
-	raw, err := w.ollama.Complete(ctx, def.SystemPrompt, message, def.Model)
+	systemPrompt, userPrompt, err := capability.BuildPrompts(def, input)
+	if err != nil {
+		return w.publishFailure(ctx, event, capabilityName, err)
+	}
+
+	raw, err := w.ollama.Complete(ctx, systemPrompt, userPrompt, def.Model, def.KeepAlive)
 	if err != nil {
 		return w.publishFailure(ctx, event, capabilityName, err)
 	}
@@ -156,28 +161,24 @@ func (w *Worker) publish(ctx context.Context, request *cloudevent.Event, respons
 	return nil
 }
 
-func parseRequest(event *cloudevent.Event) (capabilityName string, message string, err error) {
+func parseRequest(event *cloudevent.Event) (capabilityName string, input map[string]any, err error) {
 	if event.Type != cloudevent.EventTypeRequest {
-		return "", "", fmt.Errorf("unsupported event type: %s", event.Type)
+		return "", nil, fmt.Errorf("unsupported event type: %s", event.Type)
 	}
 	if _, hasModel := event.Data["model"]; hasModel {
-		return stringValue(event.Data["capability"]), "", fmt.Errorf("data.model is not allowed; models are selected by the AI gateway")
+		return stringValue(event.Data["capability"]), nil, fmt.Errorf("data.model is not allowed; models are selected by the AI gateway")
 	}
 
 	capabilityName = stringValue(event.Data["capability"])
 	if capabilityName == "" {
-		return "", "", fmt.Errorf("data.capability is required")
+		return "", nil, fmt.Errorf("data.capability is required")
 	}
 
-	input, _ := event.Data["input"].(map[string]any)
+	input, _ = event.Data["input"].(map[string]any)
 	if input == nil {
-		return capabilityName, "", fmt.Errorf("data.input is required")
+		return capabilityName, nil, fmt.Errorf("data.input is required")
 	}
-	message = stringValue(input["message"])
-	if message == "" {
-		return capabilityName, "", fmt.Errorf("data.input.message is required")
-	}
-	return capabilityName, message, nil
+	return capabilityName, input, nil
 }
 
 func stringValue(value any) string {

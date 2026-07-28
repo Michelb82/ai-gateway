@@ -9,30 +9,46 @@ import (
 const (
 	Routing              = "routing"
 	IntentClassification = "intent-classification"
+	Translate            = "translate"
 )
 
 type Definition struct {
 	Name         string
 	Model        string
+	KeepAlive    string
 	SystemPrompt string
+}
+
+// ModelBinding maps a capability to its Ollama model and keep-alive TTL.
+type ModelBinding struct {
+	Model     string
+	KeepAlive string
 }
 
 type Registry struct {
 	defs map[string]Definition
 }
 
-func NewRegistry(routingModel, intentModel string) *Registry {
+func NewRegistry(routing, intent, translate ModelBinding) *Registry {
 	return &Registry{
 		defs: map[string]Definition{
 			Routing: {
 				Name:         Routing,
-				Model:        strings.TrimSpace(routingModel),
+				Model:        strings.TrimSpace(routing.Model),
+				KeepAlive:    strings.TrimSpace(routing.KeepAlive),
 				SystemPrompt: routingSystemPrompt,
 			},
 			IntentClassification: {
 				Name:         IntentClassification,
-				Model:        strings.TrimSpace(intentModel),
+				Model:        strings.TrimSpace(intent.Model),
+				KeepAlive:    strings.TrimSpace(intent.KeepAlive),
 				SystemPrompt: intentSystemPrompt,
+			},
+			Translate: {
+				Name:         Translate,
+				Model:        strings.TrimSpace(translate.Model),
+				KeepAlive:    strings.TrimSpace(translate.KeepAlive),
+				SystemPrompt: translateSystemPrompt,
 			},
 		},
 	}
@@ -50,7 +66,7 @@ func (r *Registry) Get(name string) (Definition, error) {
 }
 
 func (r *Registry) All() []Definition {
-	order := []string{Routing, IntentClassification}
+	order := []string{Routing, IntentClassification, Translate}
 	out := make([]Definition, 0, len(order))
 	for _, name := range order {
 		if def, ok := r.defs[name]; ok {
@@ -58,6 +74,34 @@ func (r *Registry) All() []Definition {
 		}
 	}
 	return out
+}
+
+func BuildPrompts(def Definition, input map[string]any) (systemPrompt, userPrompt string, err error) {
+	switch def.Name {
+	case Routing, IntentClassification:
+		message := stringValue(input["message"])
+		if message == "" {
+			return "", "", fmt.Errorf("data.input.message is required")
+		}
+		return def.SystemPrompt, message, nil
+	case Translate:
+		text := stringValue(input["text"])
+		if text == "" {
+			return "", "", fmt.Errorf("data.input.text is required")
+		}
+		sourceLocale := stringValue(input["source_locale"])
+		if sourceLocale == "" {
+			sourceLocale = "nl"
+		}
+		targetLocale := stringValue(input["target_locale"])
+		if targetLocale == "" {
+			targetLocale = "en"
+		}
+		systemPrompt := fmt.Sprintf(def.SystemPrompt, localeLabel(sourceLocale), localeLabel(targetLocale))
+		return systemPrompt, text, nil
+	default:
+		return "", "", fmt.Errorf("unknown capability: %s", def.Name)
+	}
 }
 
 func ParseResult(capabilityName, raw string) (map[string]any, error) {
@@ -93,6 +137,12 @@ func ParseResult(capabilityName, raw string) (map[string]any, error) {
 			"intent":     strings.TrimSpace(intent),
 			"confidence": confidence,
 		}, nil
+	case Translate:
+		text, _ := parsed["text"].(string)
+		if strings.TrimSpace(text) == "" {
+			return nil, fmt.Errorf("translate result missing text")
+		}
+		return map[string]any{"text": strings.TrimSpace(text)}, nil
 	default:
 		return nil, fmt.Errorf("unknown capability: %s", capabilityName)
 	}
@@ -135,11 +185,33 @@ func stripCodeFence(raw string) string {
 	return strings.TrimSpace(trimmed)
 }
 
+func stringValue(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	case float64:
+		return strings.TrimSpace(fmt.Sprintf("%.0f", typed))
+	default:
+		return ""
+	}
+}
+
+func localeLabel(locale string) string {
+	switch strings.ToLower(strings.TrimSpace(locale)) {
+	case "nl":
+		return "Dutch"
+	case "en":
+		return "English"
+	default:
+		return locale
+	}
+}
+
 const routingSystemPrompt = `You are a routing model for a construction platform AI gateway.
 Given a user message, choose the single best next AI capability.
 Respond with ONLY valid JSON in this exact shape:
 {"capability":"<capability-name>"}
-Allowed capability values: intent-classification.
+Allowed capability values: intent-classification, translate.
 Do not include markdown, explanation, or extra fields.`
 
 const intentSystemPrompt = `You are an intent classification model for a construction services platform.
@@ -148,3 +220,8 @@ Respond with ONLY valid JSON in this exact shape:
 {"intent":"<intent-slug>","confidence":0.0}
 Use lowercase kebab-case for intent (for example wall-painting, bathroom-renovation).
 Do not include markdown, explanation, or extra fields.`
+
+const translateSystemPrompt = `You are a professional translator for a construction services website. Translate the following service description from %s to %s.
+Respond with ONLY valid JSON in this exact shape:
+{"text":"<translated text>"}
+Return the translated text with no quotes inside the value beyond normal punctuation, and no markdown or explanation.`

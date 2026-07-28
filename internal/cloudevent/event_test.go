@@ -113,6 +113,14 @@ func TestNewResponse(t *testing.T) {
 	if response.OrganisationID == nil || *response.OrganisationID != "7" {
 		t.Fatalf("OrganisationID = %v", response.OrganisationID)
 	}
+	input, ok := response.Data["input"].(map[string]any)
+	if !ok || input["message"] != "hello" {
+		t.Fatalf("expected request input merged into response, got %v", response.Data["input"])
+	}
+	result, ok := response.Data["result"].(map[string]any)
+	if !ok || result["capability"] != "intent-classification" {
+		t.Fatalf("result = %v", response.Data["result"])
+	}
 }
 
 func readFixture(t *testing.T, name string) string {

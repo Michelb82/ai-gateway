@@ -31,6 +31,7 @@ type chatRequest struct {
 	Temperature        float64         `json:"temperature"`
 	Think              bool            `json:"think"`
 	ChatTemplateKwargs map[string]bool `json:"chat_template_kwargs"`
+	KeepAlive          string          `json:"keep_alive,omitempty"`
 }
 
 type chatMessage struct {
@@ -52,10 +53,11 @@ type tagsResponse struct {
 	} `json:"models"`
 }
 
-func (c *Client) Complete(ctx context.Context, systemPrompt, prompt, model string) (string, error) {
+func (c *Client) Complete(ctx context.Context, systemPrompt, prompt, model, keepAlive string) (string, error) {
 	systemPrompt = strings.TrimSpace(systemPrompt)
 	prompt = strings.TrimSpace(prompt)
 	model = strings.TrimSpace(model)
+	keepAlive = strings.TrimSpace(keepAlive)
 	if prompt == "" {
 		return "", fmt.Errorf("prompt must not be empty")
 	}
@@ -77,6 +79,7 @@ func (c *Client) Complete(ctx context.Context, systemPrompt, prompt, model strin
 		ChatTemplateKwargs: map[string]bool{
 			"enable_thinking": false,
 		},
+		KeepAlive: keepAlive,
 	}
 
 	encoded, err := json.Marshal(body)

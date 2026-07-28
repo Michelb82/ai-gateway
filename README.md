@@ -6,12 +6,12 @@ Standalone Go service that exposes AI capabilities over Redis CloudEvents and ke
 
 - Input queue: `queue:ai.requests`
 - Output queue: `queue:ai.responses`
-- Capabilities: `routing`, `intent-classification`
+- Capabilities: `routing`, `intent-classification`, `translate`
 - Ollama chat: `http://foundation-model:11434/v1/chat/completions`
 - Health: `GET /health` (HTML), `GET /health.json` (JSON) on port 80
 - Docker network: `construction_dev` (external)
 
-Applications request a **capability**. The gateway maps that capability to a configured model and never accepts caller-supplied model names.
+Applications request a **capability**. The gateway maps that capability to a configured (quantized) model and never accepts caller-supplied model names.
 
 ## Prerequisites
 
@@ -38,7 +38,7 @@ cd /home/michel/Project/construction-ai-gateway
 docker compose up --build
 ```
 
-Health endpoints are published on host port `8080` by default (`http://localhost:8080/health` and `/health.json`).
+Health endpoints are published on host port `18080` by default (`http://localhost:18080/health` and `/health.json`).
 
 ## Configuration
 
@@ -50,11 +50,17 @@ Copy `.env.example` and adjust as needed:
 | `INPUT_QUEUE` | `ai.requests` |
 | `OUTPUT_QUEUE` | `ai.responses` |
 | `OLLAMA_URL` | `http://foundation-model:11434` |
-| `OLLAMA_MODEL_ROUTING` | `qwen3:1.7b` |
-| `OLLAMA_MODEL_INTENT` | `qwen3:4b` |
+| `OLLAMA_MODEL_ROUTING` | `qwen3:1.7b-q4_K_M` |
+| `OLLAMA_MODEL_INTENT` | `qwen3:4b-q4_K_M` |
+| `OLLAMA_MODEL_TRANSLATE` | `qwen3:14b-q4_K_M` |
+| `OLLAMA_MODEL_ROUTING_TTL` | `5m` |
+| `OLLAMA_MODEL_INTENT_TTL` | `5m` |
+| `OLLAMA_MODEL_TRANSLATE_TTL` | `2m` |
 | `HTTP_ADDR` | `:80` |
 | `BRPOP_TIMEOUT` | `5` |
 | `DEBUG` | `false` |
+
+Each `*_TTL` value is passed to Ollama as `keep_alive` for that capability’s model (for example `2m`, `90s`).
 
 ## Capability contract
 
@@ -75,14 +81,30 @@ Request type: `com.buildright.ai.request`
 }
 ```
 
-| Capability | Result shape |
-|------------|--------------|
-| `routing` | `{ "capability": "<next-capability>" }` |
-| `intent-classification` | `{ "intent": "...", "confidence": 0.0-1.0 }` |
+| Capability | Input | Result shape |
+|------------|--------|--------------|
+| `routing` | `message` | `{ "capability": "<next-capability>" }` |
+| `intent-classification` | `message` | `{ "intent": "...", "confidence": 0.0-1.0 }` |
+| `translate` | `text`, `source_locale`, `target_locale` | `{ "text": "..." }` |
 
-Success: `com.buildright.ai.request.completed` with `data.capability` and `data.result` (no `model` field).
+Translate example:
 
-Failure: `com.buildright.ai.request.failed` with `data.error` (and `data.capability` when known). Unavailable models are logged and returned this way.
+```json
+{
+  "data": {
+    "capability": "translate",
+    "input": {
+      "text": "Elektrische installaties voor woningen",
+      "source_locale": "nl",
+      "target_locale": "en"
+    }
+  }
+}
+```
+
+Success: `com.buildright.ai.request.completed` with request `data` merged back in, plus `data.capability` and `data.result` (no `model` field). Gateway fields overwrite matching request keys.
+
+Failure: `com.buildright.ai.request.failed` with request `data` merged back in, plus `data.error` (and `data.capability` when known). Unavailable models are logged and returned this way.
 
 ## Health endpoints
 
@@ -109,7 +131,7 @@ CAPABILITY=routing ./scripts/push-test-event.sh
 ```
 
 ```bash
-curl -sS http://localhost:8080/health.json
+curl -sS http://localhost:18080/health.json
 ```
 
 ## Tests

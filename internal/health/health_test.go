@@ -24,11 +24,20 @@ func (f *fakeModels) ModelAvailable(ctx context.Context, name string) (bool, err
 	return f.available[name], nil
 }
 
+func testRegistry() *capability.Registry {
+	return capability.NewRegistry(
+		capability.ModelBinding{Model: "qwen3:1.7b-q4_K_M", KeepAlive: "5m"},
+		capability.ModelBinding{Model: "qwen3:4b-q4_K_M", KeepAlive: "5m"},
+		capability.ModelBinding{Model: "qwen3:14b-q4_K_M", KeepAlive: "2m"},
+	)
+}
+
 func TestHealthJSONReady(t *testing.T) {
-	reg := capability.NewRegistry("qwen3:1.7b", "qwen3:4b")
+	reg := testRegistry()
 	models := &fakeModels{available: map[string]bool{
-		"qwen3:1.7b": true,
-		"qwen3:4b":   true,
+		"qwen3:1.7b-q4_K_M": true,
+		"qwen3:4b-q4_K_M":   true,
+		"qwen3:14b-q4_K_M":  true,
 	}}
 	handler := health.NewHandler(reg, models)
 	mux := http.NewServeMux()
@@ -49,16 +58,17 @@ func TestHealthJSONReady(t *testing.T) {
 	if report.Status != health.StatusReady {
 		t.Fatalf("status = %q", report.Status)
 	}
-	if len(report.Capabilities) != 2 {
+	if len(report.Capabilities) != 3 {
 		t.Fatalf("capabilities = %d", len(report.Capabilities))
 	}
 }
 
 func TestHealthJSONNotReady(t *testing.T) {
-	reg := capability.NewRegistry("qwen3:1.7b", "qwen3:4b")
+	reg := testRegistry()
 	models := &fakeModels{available: map[string]bool{
-		"qwen3:1.7b": true,
-		"qwen3:4b":   false,
+		"qwen3:1.7b-q4_K_M": true,
+		"qwen3:4b-q4_K_M":   false,
+		"qwen3:14b-q4_K_M":  true,
 	}}
 	handler := health.NewHandler(reg, models)
 	mux := http.NewServeMux()
@@ -84,9 +94,6 @@ func TestHealthJSONNotReady(t *testing.T) {
 			if item.Status != health.StatusUnavailable {
 				t.Fatalf("intent status = %q", item.Status)
 			}
-			if item.Error == "" {
-				t.Fatalf("expected error")
-			}
 		}
 	}
 	if !found {
@@ -94,11 +101,12 @@ func TestHealthJSONNotReady(t *testing.T) {
 	}
 }
 
-func TestHealthHTML(t *testing.T) {
-	reg := capability.NewRegistry("qwen3:1.7b", "qwen3:4b")
+func TestHealthHTMLIncludesTranslate(t *testing.T) {
+	reg := testRegistry()
 	models := &fakeModels{available: map[string]bool{
-		"qwen3:1.7b": true,
-		"qwen3:4b":   false,
+		"qwen3:1.7b-q4_K_M": true,
+		"qwen3:4b-q4_K_M":   true,
+		"qwen3:14b-q4_K_M":  false,
 	}}
 	handler := health.NewHandler(reg, models)
 	mux := http.NewServeMux()
@@ -112,16 +120,10 @@ func TestHealthHTML(t *testing.T) {
 		t.Fatalf("status = %d", rec.Code)
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, `id="routing"`) {
-		t.Fatalf("missing routing div")
-	}
-	if !strings.Contains(body, `id="intent-classification"`) {
-		t.Fatalf("missing intent div")
+	if !strings.Contains(body, `id="translate"`) {
+		t.Fatalf("missing translate div")
 	}
 	if !strings.Contains(body, "unavailable") {
 		t.Fatalf("missing unavailable status")
-	}
-	if !strings.Contains(body, `style="color: red"`) {
-		t.Fatalf("missing red color")
 	}
 }

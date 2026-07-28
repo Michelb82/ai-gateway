@@ -55,7 +55,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	registry := capability.NewRegistry(cfg.OllamaModelRouting, cfg.OllamaModelIntent)
+	registry := capability.NewRegistry(
+		capability.ModelBinding{Model: cfg.OllamaModelRouting, KeepAlive: cfg.OllamaModelRoutingTTL},
+		capability.ModelBinding{Model: cfg.OllamaModelIntent, KeepAlive: cfg.OllamaModelIntentTTL},
+		capability.ModelBinding{Model: cfg.OllamaModelTranslate, KeepAlive: cfg.OllamaModelTranslateTTL},
+	)
 	eventQueue := queue.NewRedisQueue(redisClient, cfg.InputQueue, cfg.OutputQueue, cfg.BRPopTimeout)
 	ollamaClient := ollama.NewClient(cfg.OllamaURL)
 	appWorker := worker.New(eventQueue, eventQueue, ollamaClient, ollamaClient, registry, logger)
@@ -77,7 +81,11 @@ func main() {
 		"output_queue", cfg.OutputQueue,
 		"ollama_url", cfg.OllamaURL,
 		"ollama_model_routing", cfg.OllamaModelRouting,
+		"ollama_model_routing_ttl", cfg.OllamaModelRoutingTTL,
 		"ollama_model_intent", cfg.OllamaModelIntent,
+		"ollama_model_intent_ttl", cfg.OllamaModelIntentTTL,
+		"ollama_model_translate", cfg.OllamaModelTranslate,
+		"ollama_model_translate_ttl", cfg.OllamaModelTranslateTTL,
 		"http_addr", cfg.HTTPAddr,
 		"debug", cfg.Debug,
 	)

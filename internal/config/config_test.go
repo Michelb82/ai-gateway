@@ -14,6 +14,7 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("OLLAMA_URL", "")
 	t.Setenv("OLLAMA_MODEL", "")
 	t.Setenv("BRPOP_TIMEOUT", "")
+	t.Setenv("DEBUG", "")
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -38,6 +39,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.BRPopTimeout != 5 {
 		t.Fatalf("BRPopTimeout = %d, want 5", cfg.BRPopTimeout)
 	}
+	if cfg.Debug {
+		t.Fatalf("Debug = true, want false")
+	}
 }
 
 func TestLoadOverrides(t *testing.T) {
@@ -47,6 +51,7 @@ func TestLoadOverrides(t *testing.T) {
 	t.Setenv("OLLAMA_URL", "http://ollama:11434/")
 	t.Setenv("OLLAMA_MODEL", "custom-model")
 	t.Setenv("BRPOP_TIMEOUT", "10")
+	t.Setenv("DEBUG", "true")
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -70,6 +75,9 @@ func TestLoadOverrides(t *testing.T) {
 	}
 	if cfg.BRPopTimeout != 10 {
 		t.Fatalf("BRPopTimeout = %d", cfg.BRPopTimeout)
+	}
+	if !cfg.Debug {
+		t.Fatalf("Debug = false, want true")
 	}
 }
 

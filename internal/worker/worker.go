@@ -56,6 +56,11 @@ func (w *Worker) Run(ctx context.Context) error {
 			continue
 		}
 
+		w.logger.Info("incoming traffic",
+			"request_id", event.ID,
+			"sender", event.Source,
+		)
+
 		if err := w.handle(ctx, event); err != nil {
 			w.logger.Error("failed to handle event", "event_id", event.ID, "error", err)
 		}
@@ -78,7 +83,7 @@ func (w *Worker) handle(ctx context.Context, event *cloudevent.Event) error {
 		"model":        chooseModel(model, w.model),
 		"request_type": event.Type,
 	})
-	return w.publisher.Publish(ctx, response)
+	return w.publish(ctx, event, response)
 }
 
 func (w *Worker) publishFailure(ctx context.Context, event *cloudevent.Event, cause error) error {
@@ -86,7 +91,18 @@ func (w *Worker) publishFailure(ctx context.Context, event *cloudevent.Event, ca
 		"error":        cause.Error(),
 		"request_type": event.Type,
 	})
-	return w.publisher.Publish(ctx, response)
+	return w.publish(ctx, event, response)
+}
+
+func (w *Worker) publish(ctx context.Context, request *cloudevent.Event, response *cloudevent.Event) error {
+	if err := w.publisher.Publish(ctx, response); err != nil {
+		return err
+	}
+	w.logger.Info("outgoing traffic",
+		"request_id", request.ID,
+		"sender", request.Source,
+	)
+	return nil
 }
 
 func resolvePrompts(data map[string]any, defaultModel string) (string, string, string, error) {

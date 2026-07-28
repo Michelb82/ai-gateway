@@ -150,6 +150,15 @@ func (w *Worker) publishFailure(ctx context.Context, event *cloudevent.Event, ca
 	return w.publish(ctx, event, response)
 }
 
+// responseData builds response payload fields expected by construction PHP consumers,
+// including echoed callback context used for handler dispatch.
+func responseData(request *cloudevent.Event, data map[string]any) map[string]any {
+	if callback, ok := request.Data["callback"]; ok {
+		data["callback"] = callback
+	}
+	return data
+}
+
 func (w *Worker) publish(ctx context.Context, request *cloudevent.Event, response *cloudevent.Event) error {
 	if err := w.publisher.Publish(ctx, response); err != nil {
 		return err

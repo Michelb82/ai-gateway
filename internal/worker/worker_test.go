@@ -67,6 +67,10 @@ func TestHandleRoutingSuccess(t *testing.T) {
 	if result["capability"] != "intent-classification" {
 		t.Fatalf("result = %v", result)
 	}
+	callback, ok := response.Data["callback"].(map[string]any)
+	if !ok || callback["handler"] != "website.mainpage.translate" {
+		t.Fatalf("callback = %v", response.Data["callback"])
+	}
 }
 
 func TestHandleTranslateSuccess(t *testing.T) {

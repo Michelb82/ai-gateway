@@ -9,9 +9,9 @@ import (
 
 func testRegistry() *capability.Registry {
 	return capability.NewRegistry(
-		capability.ModelBinding{Model: "qwen3:1.7b-q4_K_M", KeepAlive: "5m"},
-		capability.ModelBinding{Model: "qwen3:4b-q4_K_M", KeepAlive: "5m"},
-		capability.ModelBinding{Model: "qwen3:14b-q4_K_M", KeepAlive: "2m"},
+		capability.ModelBinding{BaseURL: "http://llm-model:11434", Model: "qwen3:1.7b-q4_K_M", KeepAlive: "5m"},
+		capability.ModelBinding{BaseURL: "http://llm-model:11434", Model: "qwen3:4b-q4_K_M", KeepAlive: "5m"},
+		capability.ModelBinding{BaseURL: "http://llm-model:11434", Model: "qwen3:14b-q4_K_M", KeepAlive: "2m"},
 	)
 }
 
@@ -24,6 +24,9 @@ func TestRegistryGet(t *testing.T) {
 	}
 	if routing.Model != "qwen3:1.7b-q4_K_M" {
 		t.Fatalf("routing model = %q", routing.Model)
+	}
+	if routing.BaseURL != "http://llm-model:11434" {
+		t.Fatalf("routing url = %q", routing.BaseURL)
 	}
 	if routing.KeepAlive != "5m" {
 		t.Fatalf("routing keep_alive = %q", routing.KeepAlive)
@@ -51,9 +54,9 @@ func TestRegistryGet(t *testing.T) {
 
 func TestRegistryUnknownCapability(t *testing.T) {
 	reg := capability.NewRegistry(
-		capability.ModelBinding{Model: "a", KeepAlive: "1m"},
-		capability.ModelBinding{Model: "b", KeepAlive: "1m"},
-		capability.ModelBinding{Model: "c", KeepAlive: "1m"},
+		capability.ModelBinding{BaseURL: "http://llm-model:11434", Model: "a", KeepAlive: "1m"},
+		capability.ModelBinding{BaseURL: "http://llm-model:11434", Model: "b", KeepAlive: "1m"},
+		capability.ModelBinding{BaseURL: "http://llm-model:11434", Model: "c", KeepAlive: "1m"},
 	)
 	_, err := reg.Get("unknown")
 	if err == nil {

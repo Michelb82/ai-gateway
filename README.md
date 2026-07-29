@@ -8,11 +8,11 @@ Standalone Go service that exposes AI capabilities over Redis CloudEvents and ke
 - Internal priority lanes: `queue:ai.requests:critical|high|medium|low`
 - Output queue: `queue:ai.responses`
 - Capabilities: `routing`, `intent-classification`, `translate`
-- Ollama chat: `http://llm-model:11434/v1/chat/completions`
+- Per-capability LLM URL + model (defaults point at `http://llm-model:11434`)
 - Health: `GET /health` (HTML), `GET /health.json` (JSON) on port 80
 - Docker network: `construction_dev` (external)
 
-Applications request a **capability**. The gateway maps that capability to a configured (quantized) model and never accepts caller-supplied model names.
+Applications request a **capability**. The gateway maps that capability to a configured LLM endpoint and (quantized) model and never accepts caller-supplied model names.
 
 Optional `data.priority` on each request selects a processing lane: `CRITICAL`, `HIGH`, `MEDIUM`, or `LOW` (case-insensitive). Missing or invalid values default to `LOW`. The gateway demuxes the input list into Redis lanes and schedules work with fairness counters (see Configuration).
 
@@ -26,7 +26,7 @@ Optional `data.priority` on each request selects a processing lane: `CRITICAL`, 
 docker network ls | grep construction_dev
 ```
 
-3. Pull the models configured for each capability (defaults below). On startup the gateway checks Ollama and pulls any missing configured models. **Redis is required** (startup exits if unreachable). Models are best-effort: if at least one configured model is available, startup continues and missing models are logged as warnings; startup exits only when none are available (or Ollama itself is unreachable).
+3. Pull the models configured for each capability (defaults below). On startup the gateway checks each capability’s LLM URL and pulls any missing configured models. **Redis is required** (startup exits if unreachable). Models are best-effort: if at least one configured model is available on its LLM, startup continues and missing models are logged as warnings; startup exits only when none are available.
 
 ## Run locally in Docker
 
@@ -47,13 +47,15 @@ Copy `.env.dist` to `.env` and adjust as needed. Public defaults use placeholder
 | `REDIS_ADDR` | `redis:6379` |
 | `INPUT_QUEUE` | `ai.requests` |
 | `OUTPUT_QUEUE` | `ai.responses` |
-| `OLLAMA_URL` | `http://llm-model:11434` |
-| `OLLAMA_MODEL_ROUTING` | `qwen3:1.7b-q4_K_M` |
-| `OLLAMA_MODEL_INTENT` | `qwen3:4b-q4_K_M` |
-| `OLLAMA_MODEL_TRANSLATE` | `qwen3:14b-q4_K_M` |
-| `OLLAMA_MODEL_ROUTING_TTL` | `5m` |
-| `OLLAMA_MODEL_INTENT_TTL` | `5m` |
-| `OLLAMA_MODEL_TRANSLATE_TTL` | `2m` |
+| `LLM_URL_ROUTING` | `http://llm-model:11434` |
+| `LLM_MODEL_ROUTING` | `qwen3:1.7b-q4_K_M` |
+| `LLM_URL_INTENT` | `http://llm-model:11434` |
+| `LLM_MODEL_INTENT` | `qwen3:4b-q4_K_M` |
+| `LLM_URL_TRANSLATE` | `http://llm-model:11434` |
+| `LLM_MODEL_TRANSLATE` | `qwen3:14b-q4_K_M` |
+| `LLM_MODEL_ROUTING_TTL` | `5m` |
+| `LLM_MODEL_INTENT_TTL` | `5m` |
+| `LLM_MODEL_TRANSLATE_TTL` | `2m` |
 | `CLOUDEVENT_TYPE_PREFIX` | `com.mywebsite.ai` |
 | `HTTP_ADDR` | `:80` |
 | `BRPOP_TIMEOUT` | `5` |
@@ -61,7 +63,7 @@ Copy `.env.dist` to `.env` and adjust as needed. Public defaults use placeholder
 | `PRIORITY_MEDIUM_COUNT` | `3` |
 | `DEBUG` | `false` |
 
-Each `*_TTL` value is passed to Ollama as `keep_alive` for that capability’s model (for example `2m`, `90s`).
+Each capability has its own `LLM_URL_*` and `LLM_MODEL_*`. Each `*_TTL` value is passed to that endpoint as `keep_alive` (for example `2m`, `90s`).
 
 Request/completed/failed CloudEvent types are derived from `CLOUDEVENT_TYPE_PREFIX` as `{prefix}.request`, `{prefix}.request.completed`, and `{prefix}.request.failed`.
 

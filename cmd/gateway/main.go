@@ -58,9 +58,9 @@ func main() {
 	}
 
 	registry := capability.NewRegistry(
-		capability.ModelBinding{Model: cfg.OllamaModelRouting, KeepAlive: cfg.OllamaModelRoutingTTL},
-		capability.ModelBinding{Model: cfg.OllamaModelIntent, KeepAlive: cfg.OllamaModelIntentTTL},
-		capability.ModelBinding{Model: cfg.OllamaModelTranslate, KeepAlive: cfg.OllamaModelTranslateTTL},
+		capability.ModelBinding{BaseURL: cfg.LLMURLRouting, Model: cfg.LLMModelRouting, KeepAlive: cfg.LLMModelRoutingTTL},
+		capability.ModelBinding{BaseURL: cfg.LLMURLIntent, Model: cfg.LLMModelIntent, KeepAlive: cfg.LLMModelIntentTTL},
+		capability.ModelBinding{BaseURL: cfg.LLMURLTranslate, Model: cfg.LLMModelTranslate, KeepAlive: cfg.LLMModelTranslateTTL},
 	)
 	eventQueue := queue.NewRedisQueue(
 		redisClient,
@@ -70,30 +70,30 @@ func main() {
 		cfg.PriorityHighCount,
 		cfg.PriorityMediumCount,
 	)
-	ollamaClient := ollama.NewClient(cfg.OllamaURL)
+	llmPool := ollama.NewPool()
 
-	modelNames := make([]string, 0, len(registry.All()))
+	targets := make([]ollama.ModelTarget, 0, len(registry.All()))
 	for _, def := range registry.All() {
-		modelNames = append(modelNames, def.Model)
+		targets = append(targets, ollama.ModelTarget{BaseURL: def.BaseURL, Name: def.Model})
 	}
-	logger.Info("ensuring ollama models", "models", modelNames, "ollama_url", cfg.OllamaURL)
-	availableModels, unavailableModels, err := ollamaClient.EnsureModels(ctx, modelNames)
+	logger.Info("ensuring llm models", "targets", targets)
+	availableModels, unavailableModels, err := llmPool.EnsureModels(ctx, targets)
 	if err != nil {
-		logger.Error("ollama model readiness failed", "error", err, "unavailable", unavailableModels)
+		logger.Error("llm model readiness failed", "error", err, "unavailable", unavailableModels)
 		os.Exit(1)
 	}
 	if len(unavailableModels) > 0 {
-		logger.Warn("some ollama models unavailable; continuing with remaining models",
+		logger.Warn("some llm models unavailable; continuing with remaining models",
 			"available", availableModels,
 			"unavailable", unavailableModels,
 		)
 	} else {
-		logger.Info("ollama models ready", "available", availableModels)
+		logger.Info("llm models ready", "available", availableModels)
 	}
 
-	appWorker := worker.New(eventQueue, eventQueue, ollamaClient, ollamaClient, registry, logger)
+	appWorker := worker.New(eventQueue, eventQueue, llmPool, llmPool, registry, logger)
 
-	healthHandler := health.NewHandler(registry, ollamaClient)
+	healthHandler := health.NewHandler(registry, llmPool)
 	httpServer := health.NewServer(cfg.HTTPAddr, healthHandler)
 
 	go func() {
@@ -108,13 +108,15 @@ func main() {
 		"redis_addr", cfg.RedisAddr,
 		"input_queue", cfg.InputQueue,
 		"output_queue", cfg.OutputQueue,
-		"ollama_url", cfg.OllamaURL,
-		"ollama_model_routing", cfg.OllamaModelRouting,
-		"ollama_model_routing_ttl", cfg.OllamaModelRoutingTTL,
-		"ollama_model_intent", cfg.OllamaModelIntent,
-		"ollama_model_intent_ttl", cfg.OllamaModelIntentTTL,
-		"ollama_model_translate", cfg.OllamaModelTranslate,
-		"ollama_model_translate_ttl", cfg.OllamaModelTranslateTTL,
+		"llm_url_routing", cfg.LLMURLRouting,
+		"llm_model_routing", cfg.LLMModelRouting,
+		"llm_model_routing_ttl", cfg.LLMModelRoutingTTL,
+		"llm_url_intent", cfg.LLMURLIntent,
+		"llm_model_intent", cfg.LLMModelIntent,
+		"llm_model_intent_ttl", cfg.LLMModelIntentTTL,
+		"llm_url_translate", cfg.LLMURLTranslate,
+		"llm_model_translate", cfg.LLMModelTranslate,
+		"llm_model_translate_ttl", cfg.LLMModelTranslateTTL,
 		"cloudevent_type_prefix", cfg.CloudEventTypePrefix,
 		"priority_high_count", cfg.PriorityHighCount,
 		"priority_medium_count", cfg.PriorityMediumCount,

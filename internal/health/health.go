@@ -20,12 +20,13 @@ const (
 )
 
 type ModelChecker interface {
-	ModelAvailable(ctx context.Context, name string) (bool, error)
+	ModelAvailable(ctx context.Context, baseURL, name string) (bool, error)
 }
 
 type CapabilityStatus struct {
 	Capability string `json:"capability"`
 	Status     string `json:"status"`
+	URL        string `json:"url"`
 	Model      string `json:"model"`
 	Error      string `json:"error,omitempty"`
 }
@@ -84,11 +85,12 @@ func (h *Handler) buildReport(ctx context.Context) Report {
 	for _, def := range defs {
 		status := CapabilityStatus{
 			Capability: def.Name,
+			URL:        def.BaseURL,
 			Model:      def.Model,
 			Status:     StatusAvailable,
 		}
 
-		available, err := h.models.ModelAvailable(ctx, def.Model)
+		available, err := h.models.ModelAvailable(ctx, def.BaseURL, def.Model)
 		if err != nil {
 			status.Status = StatusUnavailable
 			status.Error = err.Error()

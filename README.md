@@ -26,7 +26,7 @@ Optional `data.priority` on each request selects a processing lane: `CRITICAL`, 
 docker network ls | grep construction_dev
 ```
 
-3. Pull the models configured for each capability (defaults below).
+3. Pull the models configured for each capability (defaults below). On startup the gateway checks Ollama and pulls any missing configured models. **Redis is required** (startup exits if unreachable). Models are best-effort: if at least one configured model is available, startup continues and missing models are logged as warnings; startup exits only when none are available (or Ollama itself is unreachable).
 
 ## Run locally in Docker
 

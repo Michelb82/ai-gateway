@@ -85,17 +85,25 @@ func (r *Registry) All() []Definition {
 }
 
 func BuildPrompts(def Definition, input map[string]any) (systemPrompt, userPrompt string, err error) {
+	override := stringValue(input["system_prompt"])
+
 	switch def.Name {
 	case Routing, IntentClassification:
 		message := stringValue(input["message"])
 		if message == "" {
 			return "", "", fmt.Errorf("data.input.message is required")
 		}
+		if override != "" {
+			return override, message, nil
+		}
 		return def.SystemPrompt, message, nil
 	case Translate:
 		text := stringValue(input["text"])
 		if text == "" {
 			return "", "", fmt.Errorf("data.input.text is required")
+		}
+		if override != "" {
+			return override, text, nil
 		}
 		sourceLocale := stringValue(input["source_locale"])
 		if sourceLocale == "" {
@@ -112,7 +120,9 @@ func BuildPrompts(def Definition, input map[string]any) (systemPrompt, userPromp
 	}
 }
 
-func ParseResult(capabilityName, raw string) (map[string]any, error) {
+// ParseRawJSON decodes model output as a JSON object without capability-specific
+// schema checks. Used when the caller supplied a custom system_prompt.
+func ParseRawJSON(raw string) (map[string]any, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return nil, fmt.Errorf("empty model output")
@@ -123,6 +133,17 @@ func ParseResult(capabilityName, raw string) (map[string]any, error) {
 	var parsed map[string]any
 	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
 		return nil, fmt.Errorf("invalid JSON model output: %w", err)
+	}
+	if len(parsed) == 0 {
+		return nil, fmt.Errorf("empty JSON model output")
+	}
+	return parsed, nil
+}
+
+func ParseResult(capabilityName, raw string) (map[string]any, error) {
+	parsed, err := ParseRawJSON(raw)
+	if err != nil {
+		return nil, err
 	}
 
 	switch capabilityName {

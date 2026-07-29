@@ -74,6 +74,11 @@ func (w *Worker) Run(ctx context.Context) error {
 			"request_id", event.ID,
 			"sender", event.Source,
 		)
+		w.logger.Debug("incoming traffic payload",
+			"request_id", event.ID,
+			"sender", event.Source,
+			"payload", event.ToMap(),
+		)
 
 		if err := w.handle(ctx, event); err != nil {
 			w.logger.Error("failed to handle event", "event_id", event.ID, "error", err)
@@ -129,7 +134,13 @@ func (w *Worker) handle(ctx context.Context, event *cloudevent.Event) error {
 		return w.publishFailure(ctx, event, capabilityName, err)
 	}
 
-	result, err := capability.ParseResult(capabilityName, raw)
+	var result map[string]any
+	if stringValue(input["system_prompt"]) != "" {
+		// Caller-owned prompt ⇒ caller-owned response schema.
+		result, err = capability.ParseRawJSON(raw)
+	} else {
+		result, err = capability.ParseResult(capabilityName, raw)
+	}
 	if err != nil {
 		return w.publishFailure(ctx, event, capabilityName, err)
 	}
@@ -168,6 +179,11 @@ func (w *Worker) publish(ctx context.Context, request *cloudevent.Event, respons
 	w.logger.Info("outgoing traffic",
 		"request_id", request.ID,
 		"sender", request.Source,
+	)
+	w.logger.Debug("outgoing traffic payload",
+		"request_id", request.ID,
+		"sender", request.Source,
+		"payload", response.ToMap(),
 	)
 	return nil
 }

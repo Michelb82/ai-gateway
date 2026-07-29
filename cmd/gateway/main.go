@@ -144,7 +144,9 @@ func newLogger(debug bool) (*slog.Logger, *os.File, error) {
 	writer := io.Writer(os.Stdout)
 	var debugFile *os.File
 
+	level := slog.LevelInfo
 	if debug {
+		level = slog.LevelDebug
 		file, err := os.OpenFile(debugLogPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 		if err != nil {
 			return nil, nil, err
@@ -154,6 +156,6 @@ func newLogger(debug bool) (*slog.Logger, *os.File, error) {
 	}
 
 	return slog.New(slog.NewJSONHandler(writer, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
+		Level: level,
 	})), debugFile, nil
 }

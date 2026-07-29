@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/buildright/construction-ai-gateway/internal/capability"
-	"github.com/buildright/construction-ai-gateway/internal/health"
+	"github.com/mywebsite/construction-ai-gateway/internal/capability"
+	"github.com/mywebsite/construction-ai-gateway/internal/health"
 )
 
 type fakeModels struct {

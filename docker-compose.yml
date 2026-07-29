@@ -5,19 +5,25 @@ services:
     restart: unless-stopped
     ports:
       - "18080:80"
+    env_file:
+      - path: .env
+        required: false
     environment:
-      REDIS_ADDR: redis:6379
-      INPUT_QUEUE: ai.requests
-      OUTPUT_QUEUE: ai.responses
-      OLLAMA_URL: http://foundation-model:11434
-      OLLAMA_MODEL_ROUTING: qwen3:1.7b-q4_K_M
-      OLLAMA_MODEL_INTENT: qwen3:4b-q4_K_M
-      OLLAMA_MODEL_TRANSLATE: qwen3:14b-q4_K_M
-      OLLAMA_MODEL_ROUTING_TTL: 5m
-      OLLAMA_MODEL_INTENT_TTL: 5m
-      OLLAMA_MODEL_TRANSLATE_TTL: 2m
-      HTTP_ADDR: ":80"
-      BRPOP_TIMEOUT: 5
+      REDIS_ADDR: ${REDIS_ADDR:-redis:6379}
+      INPUT_QUEUE: ${INPUT_QUEUE:-ai.requests}
+      OUTPUT_QUEUE: ${OUTPUT_QUEUE:-ai.responses}
+      OLLAMA_URL: ${OLLAMA_URL:-http://llm-model:11434}
+      OLLAMA_MODEL_ROUTING: ${OLLAMA_MODEL_ROUTING:-qwen3:1.7b-q4_K_M}
+      OLLAMA_MODEL_INTENT: ${OLLAMA_MODEL_INTENT:-qwen3:4b-q4_K_M}
+      OLLAMA_MODEL_TRANSLATE: ${OLLAMA_MODEL_TRANSLATE:-qwen3:14b-q4_K_M}
+      OLLAMA_MODEL_ROUTING_TTL: ${OLLAMA_MODEL_ROUTING_TTL:-5m}
+      OLLAMA_MODEL_INTENT_TTL: ${OLLAMA_MODEL_INTENT_TTL:-5m}
+      OLLAMA_MODEL_TRANSLATE_TTL: ${OLLAMA_MODEL_TRANSLATE_TTL:-2m}
+      CLOUDEVENT_TYPE_PREFIX: ${CLOUDEVENT_TYPE_PREFIX:-com.mywebsite.ai}
+      HTTP_ADDR: ${HTTP_ADDR:-:80}
+      BRPOP_TIMEOUT: ${BRPOP_TIMEOUT:-5}
+      PRIORITY_HIGH_COUNT: ${PRIORITY_HIGH_COUNT:-3}
+      PRIORITY_MEDIUM_COUNT: ${PRIORITY_MEDIUM_COUNT:-3}
       DEBUG: ${DEBUG:-false}
     volumes:
       - ./debug.log:/app/debug.log

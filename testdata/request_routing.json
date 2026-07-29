@@ -1,5 +1,5 @@
 {
-  "type": "com.buildright.ai.request",
+  "type": "com.mywebsite.ai.request",
   "source": "/test",
   "subject": null,
   "id": "routing-1",

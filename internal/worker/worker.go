@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/buildright/construction-ai-gateway/internal/capability"
-	"github.com/buildright/construction-ai-gateway/internal/cloudevent"
+	"github.com/mywebsite/construction-ai-gateway/internal/capability"
+	"github.com/mywebsite/construction-ai-gateway/internal/cloudevent"
 )
 
 type RequestConsumer interface {
@@ -88,7 +88,7 @@ func (w *Worker) handle(ctx context.Context, event *cloudevent.Event) error {
 	}
 
 	if priority := stringValue(event.Data["priority"]); priority != "" {
-		w.logger.Info("request priority ignored",
+		w.logger.Info("request priority",
 			"request_id", event.ID,
 			"capability", capabilityName,
 			"priority", priority,

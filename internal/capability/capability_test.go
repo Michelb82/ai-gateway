@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/buildright/construction-ai-gateway/internal/capability"
+	"github.com/mywebsite/construction-ai-gateway/internal/capability"
 )
 
 func testRegistry() *capability.Registry {

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/buildright/construction-ai-gateway/internal/capability"
+	"github.com/mywebsite/construction-ai-gateway/internal/capability"
 )
 
 const (

@@ -30,14 +30,14 @@ isProject: false
 
 ## Context
 
-The [construction](/home/michel/Project/construction) project already uses Redis list queues with a CloudEvents derivative ([`CloudEvent.php`](/home/michel/Project/construction/src/Domain/Shared/Queue/CloudEvent.php), [ADR-0002](/home/michel/Project/construction/feature/adr/0002-redis-async-queues.md)):
+The [construction](/home/myname/Project/construction) project already uses Redis list queues with a CloudEvents derivative ([`CloudEvent.php`](/home/myname/Project/construction/src/Domain/Shared/Queue/CloudEvent.php), [ADR-0002](/home/myname/Project/construction/feature/adr/0002-redis-async-queues.md)):
 
 - Keys: `queue:{name}` (e.g. `queue:website.translations`)
 - Pattern: `LPUSH` to publish, `BRPOP` to consume
-- Ollama runs as `foundation-model` on `http://foundation-model:11434` (OpenAI-compatible `/v1/chat/completions`)
+- Ollama runs as `llm-model` on `http://llm-model:11434` (OpenAI-compatible `/v1/chat/completions`)
 - Docker network: compose network `dev` → runtime name **`construction_dev`**
 
-[`construction-ai-gateway`](/home/michel/Project/construction-ai-gateway) is empty — greenfield Go project.
+[`construction-ai-gateway`](/home/myname/Project/construction-ai-gateway) is empty — greenfield Go project.
 
 ## Target architecture
 
@@ -46,7 +46,7 @@ flowchart LR
   subgraph construction_dev [construction_dev network]
   Redis["redis:6379"]
   Gateway["ai-gateway"]
-  Ollama["foundation-model:11434"]
+  Ollama["llm-model:11434"]
   end
 
   TestClient["Manual test / future construction"] -->|"LPUSH queue:ai.requests"| Redis
@@ -71,7 +71,7 @@ Matches construction's format (including `organisation_id`):
 
 ```json
 {
-  "type": "com.buildright.ai.chat",
+  "type": "com.mywebsite.ai.chat",
   "source": "/ai-gateway",
   "subject": null,
   "id": "abc-123",
@@ -86,7 +86,7 @@ Matches construction's format (including `organisation_id`):
 }
 ```
 
-For dummy testing, also accept the existing translation shape in `data` (`text`, `source_locale`, `target_locale`) and map it to a translation system prompt — mirrors [`TranslateServiceDescriptionHandler`](/home/michel/Project/construction/src/Application/Website/TranslateServiceDescriptionHandler.php) without coupling to PHP.
+For dummy testing, also accept the existing translation shape in `data` (`text`, `source_locale`, `target_locale`) and map it to a translation system prompt — mirrors [`TranslateServiceDescriptionHandler`](/home/myname/Project/construction/src/Application/Website/TranslateServiceDescriptionHandler.php) without coupling to PHP.
 
 ### Output message (CloudEvent envelope)
 
@@ -94,7 +94,7 @@ Correlates via `subject` = original request `id`:
 
 ```json
 {
-  "type": "com.buildright.ai.chat.completed",
+  "type": "com.mywebsite.ai.chat.completed",
   "source": "/ai-gateway",
   "subject": "abc-123",
   "id": "def-456",
@@ -104,12 +104,12 @@ Correlates via `subject` = original request `id`:
   "data": {
     "result": "translated text or model output",
     "model": "qwen3:14b-q4_K_M",
-    "request_type": "com.buildright.ai.chat"
+    "request_type": "com.mywebsite.ai.chat"
   }
 }
 ```
 
-On failure, publish `type: com.buildright.ai.chat.failed` with `data.error` string (no silent drops).
+On failure, publish `type: com.mywebsite.ai.chat.failed` with `data.error` string (no silent drops).
 
 ## Go project layout
 
@@ -161,13 +161,13 @@ construction-ai-gateway/
 | `REDIS_ADDR` | `redis:6379` | Redis host on `construction_dev` |
 | `INPUT_QUEUE` | `ai.requests` | Consume queue name |
 | `OUTPUT_QUEUE` | `ai.responses` | Publish queue name |
-| `OLLAMA_URL` | `http://foundation-model:11434` | Ollama base URL |
+| `OLLAMA_URL` | `http://llm-model:11434` | Ollama base URL |
 | `OLLAMA_MODEL` | `qwen3:14b-q4_K_M` | Default model |
 | `BRPOP_TIMEOUT` | `5` | Seconds (matches construction worker) |
 
 ## Ollama client
 
-Call OpenAI-compatible endpoint (same as construction's [`IntentClassifierService`](/home/michel/Project/construction/src/Service/IntentClassifierService.php)):
+Call OpenAI-compatible endpoint (same as construction's [`IntentClassifierService`](/home/myname/Project/construction/src/Service/IntentClassifierService.php)):
 
 - `POST {OLLAMA_URL}/v1/chat/completions`
 - Body: `model`, `messages` (system + user), `temperature: 0.1`, `think: false`
@@ -185,7 +185,7 @@ All tests run with `go test ./...` (no Docker required for CI). Use table-driven
 | `config` | `config_test.go` | Defaults when env unset; override each env var; invalid `BRPOP_TIMEOUT` falls back or errors clearly |
 | `ollama` | `client_test.go` | `httptest` mock returns chat completion; extract content; HTTP 4xx/5xx → error; empty choices → error |
 | `queue` | `redis_test.go` | `miniredis`: `Publish` uses `queue:` prefix + `LPUSH`; `Consume` with timeout returns nil on empty; FIFO order via `BRPOP` |
-| `worker` | `worker_test.go` | Mock `Consumer` + `Publisher` + `OllamaClient` interfaces; success publishes `com.buildright.ai.chat.completed` with `subject` = request `id`; Ollama error publishes `com.buildright.ai.chat.failed`; translation payload mapping (`text`/`source_locale`/`target_locale`) builds correct prompts |
+| `worker` | `worker_test.go` | Mock `Consumer` + `Publisher` + `OllamaClient` interfaces; success publishes `com.mywebsite.ai.chat.completed` with `subject` = request `id`; Ollama error publishes `com.mywebsite.ai.chat.failed`; translation payload mapping (`text`/`source_locale`/`target_locale`) builds correct prompts |
 
 ### Test fixtures
 
@@ -244,7 +244,7 @@ services:
     restart: unless-stopped
     environment:
       REDIS_ADDR: redis:6379
-      OLLAMA_URL: http://foundation-model:11434
+      OLLAMA_URL: http://llm-model:11434
     networks:
       - construction_dev
 
@@ -253,7 +253,7 @@ networks:
     external: true
 ```
 
-Prerequisite: construction stack running (`docker compose up` in `/home/michel/Project/construction`) so `redis`, `foundation-model`, and `construction_dev` exist.
+Prerequisite: construction stack running (`docker compose up` in `/home/myname/Project/construction`) so `redis`, `llm-model`, and `construction_dev` exist.
 
 ## Manual test flow (documented in README)
 
@@ -274,7 +274,7 @@ When ready, construction would:
 
 1. Publish AI jobs to `ai.requests` instead of calling Ollama directly.
 2. Add a response consumer on `ai.responses` (or route by `request_type`).
-3. Retire direct `FOUNDATION_MODEL_URL` calls from [`ProcessMainpageServiceTranslationHandler`](/home/michel/Project/construction/src/Application/Website/ProcessMainpageServiceTranslationHandler.php).
+3. Retire direct `FOUNDATION_MODEL_URL` calls from [`ProcessMainpageServiceTranslationHandler`](/home/myname/Project/construction/src/Application/Website/ProcessMainpageServiceTranslationHandler.php).
 
 ```mermaid
 sequenceDiagram

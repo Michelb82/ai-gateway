@@ -65,6 +65,8 @@ Copy `.env.dist` to `.env` and adjust as needed. Public defaults use placeholder
 
 Each capability has its own `LLM_URL_*` and `LLM_MODEL_*`. Each `*_TTL` value is passed to that endpoint as `keep_alive` (for example `2m`, `90s`).
 
+When `DEBUG=true`, the logger also emits Debug-level full Redis and Ollama payloads (`incoming/outgoing traffic payload`, `ollama incoming` / `ollama outgoing`) and appends the same JSON logs to `debug.log`.
+
 Request/completed/failed CloudEvent types are derived from `CLOUDEVENT_TYPE_PREFIX` as `{prefix}.request`, `{prefix}.request.completed`, and `{prefix}.request.failed`.
 
 ### Priority fairness
@@ -109,6 +111,32 @@ Request type: `{CLOUDEVENT_TYPE_PREFIX}.request` (default `com.mywebsite.ai.requ
 | `routing` | `message` | `{ "capability": "<next-capability>" }` |
 | `intent-classification` | `message` | `{ "intent": "...", "confidence": 0.0-1.0 }` |
 | `translate` | `text`, `source_locale`, `target_locale` | `{ "text": "..." }` |
+
+### Custom system prompt (`messages.role = system`)
+
+Optional `data.input.system_prompt` becomes the Ollama chat message with `role: "system"`. When it is present, **it replaces the gateway’s built-in system prompt** for that capability (`routing`, `intent-classification`, or `translate`). That changes how the AI agent behaves: instructions, allowed output fields, and language are whatever the caller supplies.
+
+Effects when `system_prompt` is set:
+
+1. The built-in gateway system prompts are **not** used.
+2. The value is sent to the LLM as `messages[]` with `role: "system"` (alongside the user message/text as `role: "user"`).
+3. Result parsing is relaxed: the model’s JSON object is returned as `data.result` **as-is**, without enforcing the default capability result shapes above. Callers that override the system prompt own the response schema.
+
+Example (organisation-specific routing):
+
+```json
+{
+  "data": {
+    "capability": "routing",
+    "input": {
+      "message": "{\"customer_request\":\"muren verven\",\"available_jobs\":[{\"id\":1,\"name\":\"Wall painting\"}]}",
+      "system_prompt": "You are a routing specialist. Respond with ONLY valid JSON matching your organisation schema."
+    }
+  }
+}
+```
+
+Without `system_prompt`, the gateway uses its default system prompts and validates the default result shapes in the table above.
 
 Translate example:
 

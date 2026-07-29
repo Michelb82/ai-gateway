@@ -99,6 +99,62 @@ func TestBuildPromptsTranslate(t *testing.T) {
 	}
 }
 
+func TestBuildPromptsUsesSystemPromptOverride(t *testing.T) {
+	def, err := testRegistry().Get(capability.Routing)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+
+	custom := "Custom routing system prompt for this organisation."
+	systemPrompt, userPrompt, err := capability.BuildPrompts(def, map[string]any{
+		"message":       `{"customer_request":"muren verven"}`,
+		"system_prompt": custom,
+	})
+	if err != nil {
+		t.Fatalf("BuildPrompts() error = %v", err)
+	}
+	if systemPrompt != custom {
+		t.Fatalf("systemPrompt = %q, want override", systemPrompt)
+	}
+	if userPrompt != `{"customer_request":"muren verven"}` {
+		t.Fatalf("userPrompt = %q", userPrompt)
+	}
+}
+
+func TestBuildPromptsTranslateUsesSystemPromptOverride(t *testing.T) {
+	def, err := testRegistry().Get(capability.Translate)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+
+	custom := "Translate this service description carefully."
+	systemPrompt, userPrompt, err := capability.BuildPrompts(def, map[string]any{
+		"text":          "Hallo",
+		"system_prompt": custom,
+		"source_locale": "nl",
+		"target_locale": "en",
+	})
+	if err != nil {
+		t.Fatalf("BuildPrompts() error = %v", err)
+	}
+	if systemPrompt != custom {
+		t.Fatalf("systemPrompt = %q, want override", systemPrompt)
+	}
+	if userPrompt != "Hallo" {
+		t.Fatalf("userPrompt = %q", userPrompt)
+	}
+}
+
+func TestParseRawJSON(t *testing.T) {
+	result, err := capability.ParseRawJSON(`{"jobs":[{"job_id":1,"confidence":0.9}],"route":"wizard"}`)
+	if err != nil {
+		t.Fatalf("ParseRawJSON() error = %v", err)
+	}
+	if result["route"] != "wizard" {
+		t.Fatalf("route = %v", result["route"])
+	}
+}
+
 func TestParseRoutingResult(t *testing.T) {
 	result, err := capability.ParseResult(capability.Routing, `{"capability":"intent-classification"}`)
 	if err != nil {

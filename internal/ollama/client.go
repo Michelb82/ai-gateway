@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -97,7 +98,13 @@ func (c *Client) Complete(ctx context.Context, systemPrompt, prompt, model, keep
 		return "", fmt.Errorf("encode chat request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/chat/completions", bytes.NewReader(encoded))
+	url := c.baseURL + "/v1/chat/completions"
+	slog.Debug("ollama outgoing",
+		"url", url,
+		"body", string(encoded),
+	)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(encoded))
 	if err != nil {
 		return "", fmt.Errorf("create chat request: %w", err)
 	}
@@ -113,6 +120,12 @@ func (c *Client) Complete(ctx context.Context, systemPrompt, prompt, model, keep
 	if err != nil {
 		return "", fmt.Errorf("read chat response: %w", err)
 	}
+
+	slog.Debug("ollama incoming",
+		"url", url,
+		"status", resp.StatusCode,
+		"body", string(respBody),
+	)
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", fmt.Errorf("chat request returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
@@ -135,7 +148,14 @@ func (c *Client) Complete(ctx context.Context, systemPrompt, prompt, model, keep
 }
 
 func (c *Client) ListModels(ctx context.Context) ([]string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/tags", nil)
+	url := c.baseURL + "/api/tags"
+	slog.Debug("ollama outgoing",
+		"url", url,
+		"method", http.MethodGet,
+		"body", "",
+	)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create tags request: %w", err)
 	}
@@ -150,6 +170,12 @@ func (c *Client) ListModels(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read tags response: %w", err)
 	}
+
+	slog.Debug("ollama incoming",
+		"url", url,
+		"status", resp.StatusCode,
+		"body", string(respBody),
+	)
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("tags request returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
@@ -201,7 +227,13 @@ func (c *Client) Pull(ctx context.Context, name string) error {
 		return fmt.Errorf("encode pull request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/pull", bytes.NewReader(encoded))
+	url := c.baseURL + "/api/pull"
+	slog.Debug("ollama outgoing",
+		"url", url,
+		"body", string(encoded),
+	)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(encoded))
 	if err != nil {
 		return fmt.Errorf("create pull request: %w", err)
 	}
@@ -219,6 +251,12 @@ func (c *Client) Pull(ctx context.Context, name string) error {
 	if err != nil {
 		return fmt.Errorf("read pull response: %w", err)
 	}
+
+	slog.Debug("ollama incoming",
+		"url", url,
+		"status", resp.StatusCode,
+		"body", string(respBody),
+	)
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("pull request returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))

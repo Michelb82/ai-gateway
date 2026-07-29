@@ -69,6 +69,41 @@ func TestHandleRoutingSuccess(t *testing.T) {
 	}
 }
 
+func TestHandleRoutingWithSystemPromptOverride(t *testing.T) {
+	customPrompt := "Custom org routing prompt"
+	event := &cloudevent.Event{
+		Type:   cloudevent.EventTypeRequest,
+		Source: "/intent/routing",
+		ID:     "routing-override-1",
+		Data: map[string]any{
+			"capability": "routing",
+			"input": map[string]any{
+				"message":       `{"customer_request":"muren verven"}`,
+				"system_prompt": customPrompt,
+			},
+		},
+	}
+	publisher := &fakePublisher{}
+	ollama := &fakeOllama{result: `{"jobs":[{"job_id":1,"confidence":0.9}],"route":"wizard","summary":"wall painting"}`}
+	models := &fakeModels{available: true}
+
+	w := New(nil, publisher, ollama, models, testRegistry(), nil)
+	if err := w.handle(context.Background(), event); err != nil {
+		t.Fatalf("handle() error = %v", err)
+	}
+
+	if ollama.systemPrompt != customPrompt {
+		t.Fatalf("systemPrompt = %q, want override", ollama.systemPrompt)
+	}
+	result := publisher.events[0].Data["result"].(map[string]any)
+	if result["route"] != "wizard" {
+		t.Fatalf("result = %v", result)
+	}
+	if _, ok := result["capability"]; ok {
+		t.Fatalf("custom prompt result should not be forced into capability schema, got %v", result)
+	}
+}
+
 func TestHandleTranslateSuccess(t *testing.T) {
 	request := mustEvent(t, "request_translate.json")
 	publisher := &fakePublisher{}

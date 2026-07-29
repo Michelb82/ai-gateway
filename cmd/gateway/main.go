@@ -71,6 +71,26 @@ func main() {
 		cfg.PriorityMediumCount,
 	)
 	ollamaClient := ollama.NewClient(cfg.OllamaURL)
+
+	modelNames := make([]string, 0, len(registry.All()))
+	for _, def := range registry.All() {
+		modelNames = append(modelNames, def.Model)
+	}
+	logger.Info("ensuring ollama models", "models", modelNames, "ollama_url", cfg.OllamaURL)
+	availableModels, unavailableModels, err := ollamaClient.EnsureModels(ctx, modelNames)
+	if err != nil {
+		logger.Error("ollama model readiness failed", "error", err, "unavailable", unavailableModels)
+		os.Exit(1)
+	}
+	if len(unavailableModels) > 0 {
+		logger.Warn("some ollama models unavailable; continuing with remaining models",
+			"available", availableModels,
+			"unavailable", unavailableModels,
+		)
+	} else {
+		logger.Info("ollama models ready", "available", availableModels)
+	}
+
 	appWorker := worker.New(eventQueue, eventQueue, ollamaClient, ollamaClient, registry, logger)
 
 	healthHandler := health.NewHandler(registry, ollamaClient)

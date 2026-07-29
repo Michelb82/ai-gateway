@@ -19,11 +19,11 @@ type ResponsePublisher interface {
 }
 
 type ChatCompleter interface {
-	Complete(ctx context.Context, systemPrompt, prompt, model, keepAlive string) (string, error)
+	Complete(ctx context.Context, baseURL, systemPrompt, prompt, model, keepAlive string) (string, error)
 }
 
 type ModelChecker interface {
-	ModelAvailable(ctx context.Context, name string) (bool, error)
+	ModelAvailable(ctx context.Context, baseURL, name string) (bool, error)
 }
 
 type Worker struct {
@@ -100,10 +100,11 @@ func (w *Worker) handle(ctx context.Context, event *cloudevent.Event) error {
 		return w.publishFailure(ctx, event, capabilityName, err)
 	}
 
-	available, err := w.models.ModelAvailable(ctx, def.Model)
+	available, err := w.models.ModelAvailable(ctx, def.BaseURL, def.Model)
 	if err != nil {
 		w.logger.Error("model availability check failed",
 			"capability", capabilityName,
+			"llm_url", def.BaseURL,
 			"model", def.Model,
 			"error", err,
 		)
@@ -112,9 +113,10 @@ func (w *Worker) handle(ctx context.Context, event *cloudevent.Event) error {
 	if !available {
 		w.logger.Error("model unavailable",
 			"capability", capabilityName,
+			"llm_url", def.BaseURL,
 			"model", def.Model,
 		)
-		return w.publishFailure(ctx, event, capabilityName, fmt.Errorf("model unavailable: %s is not present on Ollama", def.Model))
+		return w.publishFailure(ctx, event, capabilityName, fmt.Errorf("model unavailable: %s is not present on %s", def.Model, def.BaseURL))
 	}
 
 	systemPrompt, userPrompt, err := capability.BuildPrompts(def, input)
@@ -122,7 +124,7 @@ func (w *Worker) handle(ctx context.Context, event *cloudevent.Event) error {
 		return w.publishFailure(ctx, event, capabilityName, err)
 	}
 
-	raw, err := w.ollama.Complete(ctx, systemPrompt, userPrompt, def.Model, def.KeepAlive)
+	raw, err := w.ollama.Complete(ctx, def.BaseURL, systemPrompt, userPrompt, def.Model, def.KeepAlive)
 	if err != nil {
 		return w.publishFailure(ctx, event, capabilityName, err)
 	}

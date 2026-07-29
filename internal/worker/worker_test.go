@@ -13,9 +13,9 @@ import (
 
 func testRegistry() *capability.Registry {
 	return capability.NewRegistry(
-		capability.ModelBinding{Model: "qwen3:1.7b-q4_K_M", KeepAlive: "5m"},
-		capability.ModelBinding{Model: "qwen3:4b-q4_K_M", KeepAlive: "5m"},
-		capability.ModelBinding{Model: "qwen3:14b-q4_K_M", KeepAlive: "2m"},
+		capability.ModelBinding{BaseURL: "http://llm-model:11434", Model: "qwen3:1.7b-q4_K_M", KeepAlive: "5m"},
+		capability.ModelBinding{BaseURL: "http://llm-model:11434", Model: "qwen3:4b-q4_K_M", KeepAlive: "5m"},
+		capability.ModelBinding{BaseURL: "http://llm-model:11434", Model: "qwen3:14b-q4_K_M", KeepAlive: "2m"},
 	)
 }
 
@@ -206,7 +206,7 @@ type fakeOllama struct {
 	called       bool
 }
 
-func (f *fakeOllama) Complete(ctx context.Context, systemPrompt, prompt, model, keepAlive string) (string, error) {
+func (f *fakeOllama) Complete(ctx context.Context, baseURL, systemPrompt, prompt, model, keepAlive string) (string, error) {
 	f.called = true
 	f.systemPrompt = systemPrompt
 	f.prompt = prompt
@@ -223,7 +223,7 @@ type fakeModels struct {
 	err       error
 }
 
-func (f *fakeModels) ModelAvailable(ctx context.Context, name string) (bool, error) {
+func (f *fakeModels) ModelAvailable(ctx context.Context, baseURL, name string) (bool, error) {
 	if f.err != nil {
 		return false, f.err
 	}

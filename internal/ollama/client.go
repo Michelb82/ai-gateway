@@ -239,8 +239,8 @@ func (c *Client) Pull(ctx context.Context, name string) error {
 }
 
 // EnsureModels checks Ollama and pulls any configured models missing from /api/tags.
-// Individual pull failures are skipped. It returns an error only when Ollama is
-// unreachable or when none of the configured models are available afterward.
+// Individual pull failures are skipped. It returns an error only when none of the
+// configured models are available afterward (including when the endpoint is down).
 func (c *Client) EnsureModels(ctx context.Context, names []string) (available []string, unavailable []string, err error) {
 	unique := uniqueNonEmpty(names)
 	if len(unique) == 0 {

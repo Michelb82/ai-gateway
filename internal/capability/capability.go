@@ -14,13 +14,15 @@ const (
 
 type Definition struct {
 	Name         string
+	BaseURL      string
 	Model        string
 	KeepAlive    string
 	SystemPrompt string
 }
 
-// ModelBinding maps a capability to its Ollama model and keep-alive TTL.
+// ModelBinding maps a capability to its LLM endpoint, model, and keep-alive TTL.
 type ModelBinding struct {
+	BaseURL   string
 	Model     string
 	KeepAlive string
 }
@@ -34,18 +36,21 @@ func NewRegistry(routing, intent, translate ModelBinding) *Registry {
 		defs: map[string]Definition{
 			Routing: {
 				Name:         Routing,
+				BaseURL:      strings.TrimRight(strings.TrimSpace(routing.BaseURL), "/"),
 				Model:        strings.TrimSpace(routing.Model),
 				KeepAlive:    strings.TrimSpace(routing.KeepAlive),
 				SystemPrompt: routingSystemPrompt,
 			},
 			IntentClassification: {
 				Name:         IntentClassification,
+				BaseURL:      strings.TrimRight(strings.TrimSpace(intent.BaseURL), "/"),
 				Model:        strings.TrimSpace(intent.Model),
 				KeepAlive:    strings.TrimSpace(intent.KeepAlive),
 				SystemPrompt: intentSystemPrompt,
 			},
 			Translate: {
 				Name:         Translate,
+				BaseURL:      strings.TrimRight(strings.TrimSpace(translate.BaseURL), "/"),
 				Model:        strings.TrimSpace(translate.Model),
 				KeepAlive:    strings.TrimSpace(translate.KeepAlive),
 				SystemPrompt: translateSystemPrompt,
@@ -58,6 +63,9 @@ func (r *Registry) Get(name string) (Definition, error) {
 	def, ok := r.defs[strings.TrimSpace(name)]
 	if !ok {
 		return Definition{}, fmt.Errorf("unknown capability: %s", name)
+	}
+	if def.BaseURL == "" {
+		return Definition{}, fmt.Errorf("capability %s has no LLM URL configured", name)
 	}
 	if def.Model == "" {
 		return Definition{}, fmt.Errorf("capability %s has no model configured", name)

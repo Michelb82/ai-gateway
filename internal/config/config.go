@@ -18,8 +18,11 @@ type Config struct {
 	OllamaModelRoutingTTL   string
 	OllamaModelIntentTTL    string
 	OllamaModelTranslateTTL string
+	CloudEventTypePrefix    string
 	HTTPAddr                string
 	BRPopTimeout            int
+	PriorityHighCount       int
+	PriorityMediumCount     int
 	Debug                   bool
 }
 
@@ -28,15 +31,18 @@ func Load() (Config, error) {
 		RedisAddr:               envOrDefault("REDIS_ADDR", "redis:6379"),
 		InputQueue:              envOrDefault("INPUT_QUEUE", "ai.requests"),
 		OutputQueue:             envOrDefault("OUTPUT_QUEUE", "ai.responses"),
-		OllamaURL:               strings.TrimRight(envOrDefault("OLLAMA_URL", "http://foundation-model:11434"), "/"),
+		OllamaURL:               strings.TrimRight(envOrDefault("OLLAMA_URL", "http://llm-model:11434"), "/"),
 		OllamaModelRouting:      envOrDefault("OLLAMA_MODEL_ROUTING", "qwen3:1.7b-q4_K_M"),
 		OllamaModelIntent:       envOrDefault("OLLAMA_MODEL_INTENT", "qwen3:4b-q4_K_M"),
 		OllamaModelTranslate:    envOrDefault("OLLAMA_MODEL_TRANSLATE", "qwen3:14b-q4_K_M"),
 		OllamaModelRoutingTTL:   envOrDefault("OLLAMA_MODEL_ROUTING_TTL", "5m"),
 		OllamaModelIntentTTL:    envOrDefault("OLLAMA_MODEL_INTENT_TTL", "5m"),
 		OllamaModelTranslateTTL: envOrDefault("OLLAMA_MODEL_TRANSLATE_TTL", "2m"),
+		CloudEventTypePrefix:    envOrDefault("CLOUDEVENT_TYPE_PREFIX", "com.mywebsite.ai"),
 		HTTPAddr:                envOrDefault("HTTP_ADDR", ":80"),
 		BRPopTimeout:            5,
+		PriorityHighCount:       3,
+		PriorityMediumCount:     3,
 		Debug:                   envBool("DEBUG"),
 	}
 
@@ -48,6 +54,18 @@ func Load() (Config, error) {
 		}
 		cfg.BRPopTimeout = timeout
 	}
+
+	highCount, err := envPositiveInt("PRIORITY_HIGH_COUNT", cfg.PriorityHighCount)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.PriorityHighCount = highCount
+
+	mediumCount, err := envPositiveInt("PRIORITY_MEDIUM_COUNT", cfg.PriorityMediumCount)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.PriorityMediumCount = mediumCount
 
 	if cfg.RedisAddr == "" {
 		return Config{}, fmt.Errorf("REDIS_ADDR must not be blank")
@@ -79,6 +97,9 @@ func Load() (Config, error) {
 	if cfg.OllamaModelTranslateTTL == "" {
 		return Config{}, fmt.Errorf("OLLAMA_MODEL_TRANSLATE_TTL must not be blank")
 	}
+	if cfg.CloudEventTypePrefix == "" {
+		return Config{}, fmt.Errorf("CLOUDEVENT_TYPE_PREFIX must not be blank")
+	}
 	if cfg.HTTPAddr == "" {
 		return Config{}, fmt.Errorf("HTTP_ADDR must not be blank")
 	}
@@ -91,6 +112,18 @@ func envOrDefault(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func envPositiveInt(key string, fallback int) (int, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < 1 {
+		return 0, fmt.Errorf("invalid %s %q: must be a positive integer", key, raw)
+	}
+	return value, nil
 }
 
 func envBool(key string) bool {

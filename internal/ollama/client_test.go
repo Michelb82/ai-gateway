@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/buildright/construction-ai-gateway/internal/ollama"
+	"github.com/mywebsite/construction-ai-gateway/internal/ollama"
 )
 
 func TestCompleteSuccess(t *testing.T) {

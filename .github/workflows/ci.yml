@@ -53,8 +53,8 @@ jobs:
           context: .
           push: true
           tags: |
-            michelb82/construction-ai-gateway:${{ steps.version.outputs.version }}
-            michelb82/construction-ai-gateway:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/construction-ai-gateway:${{ steps.version.outputs.version }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/construction-ai-gateway:latest
 
       - name: Create and push git tag
         env:

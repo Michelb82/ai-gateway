@@ -7,10 +7,11 @@ OUTPUT_QUEUE="${OUTPUT_QUEUE:-queue:ai.responses}"
 TIMEOUT="${TIMEOUT:-30}"
 CAPABILITY="${CAPABILITY:-intent-classification}"
 MESSAGE="${MESSAGE:-I need my living room painted}"
+EVENT_TYPE="${EVENT_TYPE:-${CLOUDEVENT_TYPE_PREFIX:-com.mywebsite.ai}.request}"
 
 PAYLOAD=$(cat <<EOF
 {
-  "type": "com.buildright.ai.request",
+  "type": "${EVENT_TYPE}",
   "source": "/ai-gateway",
   "subject": null,
   "id": "smoke-test-1",

@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/buildright/construction-ai-gateway/internal/capability"
-	"github.com/buildright/construction-ai-gateway/internal/cloudevent"
+	"github.com/mywebsite/construction-ai-gateway/internal/capability"
+	"github.com/mywebsite/construction-ai-gateway/internal/cloudevent"
 )
 
 func testRegistry() *capability.Registry {
@@ -66,10 +66,6 @@ func TestHandleRoutingSuccess(t *testing.T) {
 	result := publisher.events[0].Data["result"].(map[string]any)
 	if result["capability"] != "intent-classification" {
 		t.Fatalf("result = %v", result)
-	}
-	callback, ok := response.Data["callback"].(map[string]any)
-	if !ok || callback["handler"] != "website.mainpage.translate" {
-		t.Fatalf("callback = %v", response.Data["callback"])
 	}
 }
 

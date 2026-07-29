@@ -10,12 +10,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/buildright/construction-ai-gateway/internal/capability"
-	"github.com/buildright/construction-ai-gateway/internal/config"
-	"github.com/buildright/construction-ai-gateway/internal/health"
-	"github.com/buildright/construction-ai-gateway/internal/ollama"
-	"github.com/buildright/construction-ai-gateway/internal/queue"
-	"github.com/buildright/construction-ai-gateway/internal/worker"
+	"github.com/mywebsite/construction-ai-gateway/internal/capability"
+	"github.com/mywebsite/construction-ai-gateway/internal/cloudevent"
+	"github.com/mywebsite/construction-ai-gateway/internal/config"
+	"github.com/mywebsite/construction-ai-gateway/internal/health"
+	"github.com/mywebsite/construction-ai-gateway/internal/ollama"
+	"github.com/mywebsite/construction-ai-gateway/internal/queue"
+	"github.com/mywebsite/construction-ai-gateway/internal/worker"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -31,6 +32,7 @@ func main() {
 		bootstrap.Error("failed to load config", "error", err)
 		os.Exit(1)
 	}
+	cloudevent.ConfigureTypes(cfg.CloudEventTypePrefix)
 
 	logger, debugFile, err := newLogger(cfg.Debug)
 	if err != nil {
@@ -60,7 +62,14 @@ func main() {
 		capability.ModelBinding{Model: cfg.OllamaModelIntent, KeepAlive: cfg.OllamaModelIntentTTL},
 		capability.ModelBinding{Model: cfg.OllamaModelTranslate, KeepAlive: cfg.OllamaModelTranslateTTL},
 	)
-	eventQueue := queue.NewRedisQueue(redisClient, cfg.InputQueue, cfg.OutputQueue, cfg.BRPopTimeout)
+	eventQueue := queue.NewRedisQueue(
+		redisClient,
+		cfg.InputQueue,
+		cfg.OutputQueue,
+		cfg.BRPopTimeout,
+		cfg.PriorityHighCount,
+		cfg.PriorityMediumCount,
+	)
 	ollamaClient := ollama.NewClient(cfg.OllamaURL)
 	appWorker := worker.New(eventQueue, eventQueue, ollamaClient, ollamaClient, registry, logger)
 
@@ -86,6 +95,9 @@ func main() {
 		"ollama_model_intent_ttl", cfg.OllamaModelIntentTTL,
 		"ollama_model_translate", cfg.OllamaModelTranslate,
 		"ollama_model_translate_ttl", cfg.OllamaModelTranslateTTL,
+		"cloudevent_type_prefix", cfg.CloudEventTypePrefix,
+		"priority_high_count", cfg.PriorityHighCount,
+		"priority_medium_count", cfg.PriorityMediumCount,
 		"http_addr", cfg.HTTPAddr,
 		"debug", cfg.Debug,
 	)

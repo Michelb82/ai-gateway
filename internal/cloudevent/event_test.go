@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/buildright/construction-ai-gateway/internal/cloudevent"
+	"github.com/mywebsite/construction-ai-gateway/internal/cloudevent"
 )
 
 func TestFromJSONValid(t *testing.T) {

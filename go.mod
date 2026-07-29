@@ -1,4 +1,4 @@
-module github.com/buildright/construction-ai-gateway
+module github.com/mywebsite/construction-ai-gateway
 
 go 1.23
 

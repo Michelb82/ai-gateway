@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -110,7 +111,9 @@ func (q *RedisQueue) drainInput(ctx context.Context) error {
 func (q *RedisQueue) routePayload(ctx context.Context, payload string) error {
 	event, err := cloudevent.FromJSON(payload)
 	if err != nil {
-		return fmt.Errorf("parse input event: %w", err)
+		// Payload already removed from Redis; skip instead of failing Consume.
+		slog.Warn("skipping malformed queue payload", "error", err)
+		return nil
 	}
 
 	level := priority.Low
@@ -165,7 +168,13 @@ func (q *RedisQueue) popLane(ctx context.Context, level priority.Level) (*cloude
 	if err != nil {
 		return nil, fmt.Errorf("pop from %s: %w", laneKey, err)
 	}
-	return cloudevent.FromJSON(payload)
+	event, err := cloudevent.FromJSON(payload)
+	if err != nil {
+		// Payload already removed from the lane; skip instead of failing Consume.
+		slog.Warn("skipping malformed lane payload", "lane", laneKey, "error", err)
+		return nil, nil
+	}
+	return event, nil
 }
 
 func (q *RedisQueue) laneKey(level priority.Level) string {

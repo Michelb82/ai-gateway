@@ -1,7 +1,18 @@
-#!/bin/sh
+#!/usr/bin/env sh
 # Fail the commit unless the unit test suite is green.
 # Prefer Docker so local Go is not required (see AGENTS.md / Makefile).
+# Install with: make install-hooks
 set -e
-cd "$(git rev-parse --show-toplevel)"
-echo "pre-commit: running make test-docker..."
-make test-docker
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+echo "pre-commit: running unit tests (make test-docker)..."
+if command -v docker >/dev/null 2>&1; then
+	make test-docker
+else
+	echo "pre-commit: docker not found; falling back to make test"
+	make test
+fi
+
+echo "pre-commit: tests passed"

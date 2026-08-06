@@ -148,6 +148,8 @@ func (d *dataPlane) Apply(snap configmgmt.Snapshot, first bool) error {
 		d.snap.PriorityHighCount != snap.PriorityHighCount ||
 		d.snap.PriorityMediumCount != snap.PriorityMediumCount
 
+	// Prepare: open a new Redis client locally; do not mutate live state yet.
+	var newRedis *redis.Client
 	if needRedisRestart {
 		client := redis.NewClient(&redis.Options{Addr: snap.RedisAddr})
 		pingCtx, cancel := context.WithTimeout(d.parent, 5*time.Second)
@@ -157,17 +159,10 @@ func (d *dataPlane) Apply(snap configmgmt.Snapshot, first bool) error {
 			_ = client.Close()
 			return fmt.Errorf("connect redis at %s: %w", snap.RedisAddr, err)
 		}
-		d.stopWorkerLocked()
-		if d.redis != nil {
-			_ = d.redis.Close()
-		}
-		d.redis = client
+		newRedis = client
 	}
 
-	cloudevent.ConfigureTypes(snap.CloudEventTypePrefix)
-	d.registry.Store(reg)
-	d.overridePolicy.Store(capability.PolicyFromOrgs(snap.SystemPromptOverrideOrgs, snap.MaxSystemPromptChars))
-
+	// Verify models before any live swap so a failure leaves the data plane untouched.
 	targets := make([]ollama.ModelTarget, 0, len(reg.All()))
 	for _, def := range reg.All() {
 		targets = append(targets, ollama.ModelTarget{BaseURL: def.BaseURL, Name: def.Model})
@@ -175,6 +170,9 @@ func (d *dataPlane) Apply(snap configmgmt.Snapshot, first bool) error {
 	d.logger.Info("ensuring llm models", "targets", targets)
 	availableModels, unavailableModels, err := d.llmPool.EnsureModels(d.parent, targets)
 	if err != nil {
+		if newRedis != nil {
+			_ = newRedis.Close()
+		}
 		d.logger.Error("llm model readiness failed", "error", err, "unavailable", unavailableModels)
 		return fmt.Errorf("llm model readiness failed: %w", err)
 	}
@@ -187,6 +185,14 @@ func (d *dataPlane) Apply(snap configmgmt.Snapshot, first bool) error {
 		d.logger.Info("llm models ready", "available", availableModels)
 	}
 
+	// Abort before live mutation if the process is shutting down.
+	if err := d.parent.Err(); err != nil {
+		if newRedis != nil {
+			_ = newRedis.Close()
+		}
+		return fmt.Errorf("apply aborted: %w", err)
+	}
+
 	if snap.HTTPAddr != defaultHTTPAddr && snap.HTTPAddr != d.httpAddr {
 		d.logger.Warn("manifest config.http_address differs from the dormant health listener; restart required to rebind",
 			"configured", snap.HTTPAddr,
@@ -195,7 +201,23 @@ func (d *dataPlane) Apply(snap configmgmt.Snapshot, first bool) error {
 	}
 	d.httpAddr = snap.HTTPAddr
 
+	// Stop the old worker before swapping registry/types/Redis so it never
+	// observes a half-applied configuration.
 	if needRedisRestart {
+		d.stopWorkerLocked()
+		if d.redis != nil {
+			_ = d.redis.Close()
+			d.redis = nil
+		}
+	}
+
+	cloudevent.ConfigureTypes(snap.CloudEventTypePrefix)
+	d.registry.Store(reg)
+	d.overridePolicy.Store(capability.PolicyFromOrgs(snap.SystemPromptOverrideOrgs, snap.MaxSystemPromptChars))
+
+	if needRedisRestart {
+		d.redis = newRedis
+
 		workerCtx, cancel := context.WithCancel(d.parent)
 		d.cancel = cancel
 		d.done = make(chan struct{})
@@ -210,9 +232,7 @@ func (d *dataPlane) Apply(snap configmgmt.Snapshot, first bool) error {
 		appWorker := worker.New(eventQueue, eventQueue, d.llmPool, d.llmPool, d.registry, d.overridePolicy, d.logger)
 		go func() {
 			defer close(d.done)
-			if err := appWorker.Run(workerCtx); err != nil && workerCtx.Err() == nil {
-				d.logger.Error("worker stopped with error", "error", err)
-			}
+			worker.Supervise(workerCtx, appWorker.Run, d.logger, time.Second)
 		}()
 		d.logger.Info("data plane activated",
 			"redis_addr", snap.RedisAddr,

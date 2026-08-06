@@ -26,12 +26,16 @@ type ModelChecker interface {
 	ModelAvailable(ctx context.Context, baseURL, name string) (bool, error)
 }
 
+type CapabilityResolver interface {
+	Get(name string) (capability.Definition, error)
+}
+
 type Worker struct {
 	consumer  RequestConsumer
 	publisher ResponsePublisher
 	ollama    ChatCompleter
 	models    ModelChecker
-	registry  *capability.Registry
+	registry  CapabilityResolver
 	logger    *slog.Logger
 }
 
@@ -40,7 +44,7 @@ func New(
 	publisher ResponsePublisher,
 	ollama ChatCompleter,
 	models ModelChecker,
-	registry *capability.Registry,
+	registry CapabilityResolver,
 	logger *slog.Logger,
 ) *Worker {
 	if logger == nil {

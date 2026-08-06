@@ -2,17 +2,21 @@ package main
 
 import (
 	"context"
+	"flag"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/mywebsite/construction-ai-gateway/internal/capability"
 	"github.com/mywebsite/construction-ai-gateway/internal/cloudevent"
 	"github.com/mywebsite/construction-ai-gateway/internal/config"
+	"github.com/mywebsite/construction-ai-gateway/internal/configmgmt"
 	"github.com/mywebsite/construction-ai-gateway/internal/health"
 	"github.com/mywebsite/construction-ai-gateway/internal/ollama"
 	"github.com/mywebsite/construction-ai-gateway/internal/queue"
@@ -20,19 +24,24 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-const debugLogPath = "debug.log"
+const (
+	debugLogPath    = "debug.log"
+	defaultHTTPAddr = ":80"
+)
 
 func main() {
 	bootstrap := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	}))
 
+	manifestPath := flag.String("manifest", "", "optional local manifest path (dev/test/experimental)")
+	flag.Parse()
+
 	cfg, err := config.Load()
 	if err != nil {
 		bootstrap.Error("failed to load config", "error", err)
 		os.Exit(1)
 	}
-	cloudevent.ConfigureTypes(cfg.CloudEventTypePrefix)
 
 	logger, debugFile, err := newLogger(cfg.Debug)
 	if err != nil {
@@ -44,87 +53,47 @@ func main() {
 	}
 	slog.SetDefault(logger)
 
-	redisClient := redis.NewClient(&redis.Options{
-		Addr: cfg.RedisAddr,
-	})
-	defer redisClient.Close()
-
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	if err := redisClient.Ping(ctx).Err(); err != nil {
-		logger.Error("failed to connect to redis", "addr", cfg.RedisAddr, "error", err)
-		os.Exit(1)
-	}
-
-	registry := capability.NewRegistry(
-		capability.ModelBinding{BaseURL: cfg.LLMURLRouting, Model: cfg.LLMModelRouting, KeepAlive: cfg.LLMModelRoutingTTL, MaxInputChars: cfg.LLMMaxCharsRouting},
-		capability.ModelBinding{BaseURL: cfg.LLMURLIntent, Model: cfg.LLMModelIntent, KeepAlive: cfg.LLMModelIntentTTL, MaxInputChars: cfg.LLMMaxCharsIntent},
-		capability.ModelBinding{BaseURL: cfg.LLMURLTranslate, Model: cfg.LLMModelTranslate, KeepAlive: cfg.LLMModelTranslateTTL, MaxInputChars: cfg.LLMMaxCharsTranslate},
-	)
-	eventQueue := queue.NewRedisQueue(
-		redisClient,
-		cfg.InputQueue,
-		cfg.OutputQueue,
-		cfg.BRPopTimeout,
-		cfg.PriorityHighCount,
-		cfg.PriorityMediumCount,
-	)
+	registryHolder := capability.NewHolder()
 	llmPool := ollama.NewPool()
-
-	targets := make([]ollama.ModelTarget, 0, len(registry.All()))
-	for _, def := range registry.All() {
-		targets = append(targets, ollama.ModelTarget{BaseURL: def.BaseURL, Name: def.Model})
-	}
-	logger.Info("ensuring llm models", "targets", targets)
-	availableModels, unavailableModels, err := llmPool.EnsureModels(ctx, targets)
-	if err != nil {
-		logger.Error("llm model readiness failed", "error", err, "unavailable", unavailableModels)
-		os.Exit(1)
-	}
-	if len(unavailableModels) > 0 {
-		logger.Warn("some llm models unavailable; continuing with remaining models",
-			"available", availableModels,
-			"unavailable", unavailableModels,
-		)
-	} else {
-		logger.Info("llm models ready", "available", availableModels)
+	plane := &dataPlane{
+		parent:   ctx,
+		registry: registryHolder,
+		llmPool:  llmPool,
+		logger:   logger,
 	}
 
-	appWorker := worker.New(eventQueue, eventQueue, llmPool, llmPool, registry, logger)
-
-	healthHandler := health.NewHandler(registry, llmPool)
-	httpServer := health.NewServer(cfg.HTTPAddr, healthHandler)
+	healthHandler := health.NewHandler(registryHolder, llmPool)
+	httpServer := health.NewServer(defaultHTTPAddr, healthHandler)
 
 	go func() {
-		logger.Info("health server listening", "addr", cfg.HTTPAddr)
+		logger.Info("health server listening", "addr", defaultHTTPAddr)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error("health server stopped with error", "error", err)
 			stop()
 		}
 	}()
 
+	mgr := configmgmt.NewManager(cfg.ManifestURL, cfg.ManifestPollingInterval, logger, plane.Apply)
+	if err := mgr.Bootstrap(*manifestPath); err != nil {
+		logger.Error("failed to bootstrap manifest", "error", err)
+		os.Exit(1)
+	}
+
+	go mgr.Run(ctx)
+
 	logger.Info("ai gateway started",
-		"redis_addr", cfg.RedisAddr,
-		"input_queue", cfg.InputQueue,
-		"output_queue", cfg.OutputQueue,
-		"llm_url_routing", cfg.LLMURLRouting,
-		"llm_model_routing", cfg.LLMModelRouting,
-		"llm_model_routing_ttl", cfg.LLMModelRoutingTTL,
-		"llm_url_intent", cfg.LLMURLIntent,
-		"llm_model_intent", cfg.LLMModelIntent,
-		"llm_model_intent_ttl", cfg.LLMModelIntentTTL,
-		"llm_url_translate", cfg.LLMURLTranslate,
-		"llm_model_translate", cfg.LLMModelTranslate,
-		"llm_model_translate_ttl", cfg.LLMModelTranslateTTL,
-		"cloudevent_type_prefix", cfg.CloudEventTypePrefix,
-		"priority_high_count", cfg.PriorityHighCount,
-		"priority_medium_count", cfg.PriorityMediumCount,
-		"http_addr", cfg.HTTPAddr,
+		"manifest_path", *manifestPath,
+		"manifest_url", cfg.ManifestURL,
+		"manifest_polling_interval", cfg.ManifestPollingInterval.String(),
+		"configured", mgr.HasSnapshot(),
 		"debug", cfg.Debug,
 	)
 
-	workerErr := appWorker.Run(ctx)
+	<-ctx.Done()
+	plane.Stop()
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -132,12 +101,150 @@ func main() {
 		logger.Error("health server shutdown failed", "error", err)
 	}
 
-	if workerErr != nil {
-		logger.Error("worker stopped with error", "error", workerErr)
-		os.Exit(1)
+	logger.Info("ai gateway stopped")
+}
+
+type dataPlane struct {
+	parent   context.Context
+	registry *capability.Holder
+	llmPool  *ollama.Pool
+	logger   *slog.Logger
+
+	mu       sync.Mutex
+	snap     *configmgmt.Snapshot
+	redis    *redis.Client
+	cancel   context.CancelFunc
+	done     chan struct{}
+	httpAddr string
+}
+
+func (d *dataPlane) Apply(snap configmgmt.Snapshot, first bool) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	bindings := make(map[string]capability.ModelBinding, len(snap.Bindings))
+	for name, binding := range snap.Bindings {
+		bindings[name] = capability.ModelBinding{
+			BaseURL:       binding.BaseURL,
+			Model:         binding.Model,
+			KeepAlive:     binding.KeepAlive,
+			MaxInputChars: binding.MaxInputChars,
+		}
+	}
+	reg, err := capability.NewRegistryFromBindings(bindings)
+	if err != nil {
+		return err
 	}
 
-	logger.Info("ai gateway stopped")
+	needRedisRestart := d.redis == nil ||
+		d.snap == nil ||
+		d.snap.RedisAddr != snap.RedisAddr ||
+		d.snap.InputQueue != snap.InputQueue ||
+		d.snap.OutputQueue != snap.OutputQueue ||
+		d.snap.BRPopTimeout != snap.BRPopTimeout ||
+		d.snap.PriorityHighCount != snap.PriorityHighCount ||
+		d.snap.PriorityMediumCount != snap.PriorityMediumCount
+
+	if needRedisRestart {
+		client := redis.NewClient(&redis.Options{Addr: snap.RedisAddr})
+		pingCtx, cancel := context.WithTimeout(d.parent, 5*time.Second)
+		err := client.Ping(pingCtx).Err()
+		cancel()
+		if err != nil {
+			_ = client.Close()
+			return fmt.Errorf("connect redis at %s: %w", snap.RedisAddr, err)
+		}
+		d.stopWorkerLocked()
+		if d.redis != nil {
+			_ = d.redis.Close()
+		}
+		d.redis = client
+	}
+
+	cloudevent.ConfigureTypes(snap.CloudEventTypePrefix)
+	d.registry.Store(reg)
+
+	targets := make([]ollama.ModelTarget, 0, len(reg.All()))
+	for _, def := range reg.All() {
+		targets = append(targets, ollama.ModelTarget{BaseURL: def.BaseURL, Name: def.Model})
+	}
+	d.logger.Info("ensuring llm models", "targets", targets)
+	availableModels, unavailableModels, err := d.llmPool.EnsureModels(d.parent, targets)
+	if err != nil {
+		d.logger.Error("llm model readiness failed", "error", err, "unavailable", unavailableModels)
+		return fmt.Errorf("llm model readiness failed: %w", err)
+	}
+	if len(unavailableModels) > 0 {
+		d.logger.Warn("some llm models unavailable; continuing with remaining models",
+			"available", availableModels,
+			"unavailable", unavailableModels,
+		)
+	} else {
+		d.logger.Info("llm models ready", "available", availableModels)
+	}
+
+	if snap.HTTPAddr != defaultHTTPAddr && snap.HTTPAddr != d.httpAddr {
+		d.logger.Warn("manifest config.http_address differs from the dormant health listener; restart required to rebind",
+			"configured", snap.HTTPAddr,
+			"listening", defaultHTTPAddr,
+		)
+	}
+	d.httpAddr = snap.HTTPAddr
+
+	if needRedisRestart {
+		workerCtx, cancel := context.WithCancel(d.parent)
+		d.cancel = cancel
+		d.done = make(chan struct{})
+		eventQueue := queue.NewRedisQueue(
+			d.redis,
+			snap.InputQueue,
+			snap.OutputQueue,
+			snap.BRPopTimeout,
+			snap.PriorityHighCount,
+			snap.PriorityMediumCount,
+		)
+		appWorker := worker.New(eventQueue, eventQueue, d.llmPool, d.llmPool, d.registry, d.logger)
+		go func() {
+			defer close(d.done)
+			if err := appWorker.Run(workerCtx); err != nil && workerCtx.Err() == nil {
+				d.logger.Error("worker stopped with error", "error", err)
+			}
+		}()
+		d.logger.Info("data plane activated",
+			"redis_addr", snap.RedisAddr,
+			"input_queue", snap.InputQueue,
+			"output_queue", snap.OutputQueue,
+			"cloudevent_type_prefix", snap.CloudEventTypePrefix,
+			"first", first,
+		)
+	} else {
+		d.logger.Info("data plane configuration updated", "fingerprint", snap.Fingerprint, "first", first)
+	}
+
+	copySnap := snap
+	d.snap = &copySnap
+	return nil
+}
+
+func (d *dataPlane) Stop() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.stopWorkerLocked()
+	if d.redis != nil {
+		_ = d.redis.Close()
+		d.redis = nil
+	}
+}
+
+func (d *dataPlane) stopWorkerLocked() {
+	if d.cancel != nil {
+		d.cancel()
+		if d.done != nil {
+			<-d.done
+		}
+		d.cancel = nil
+		d.done = nil
+	}
 }
 
 func newLogger(debug bool) (*slog.Logger, *os.File, error) {

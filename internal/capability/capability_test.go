@@ -52,6 +52,15 @@ func TestRegistryGet(t *testing.T) {
 	}
 }
 
+func TestRegistryFromBindingsRequiresKnownCapabilities(t *testing.T) {
+	_, err := capability.NewRegistryFromBindings(map[string]capability.ModelBinding{
+		capability.Routing: {BaseURL: "http://llm", Model: "a", KeepAlive: "1m"},
+	})
+	if err == nil {
+		t.Fatalf("expected error for incomplete bindings")
+	}
+}
+
 func TestRegistryUnknownCapability(t *testing.T) {
 	reg := capability.NewRegistry(
 		capability.ModelBinding{BaseURL: "http://llm-model:11434", Model: "a", KeepAlive: "1m"},
@@ -61,6 +70,27 @@ func TestRegistryUnknownCapability(t *testing.T) {
 	_, err := reg.Get("unknown")
 	if err == nil {
 		t.Fatalf("expected error for unknown capability")
+	}
+}
+
+func TestHolderDormant(t *testing.T) {
+	h := capability.NewHolder()
+	if h.Ready() {
+		t.Fatalf("expected not ready")
+	}
+	if len(h.All()) != 0 {
+		t.Fatalf("expected empty All()")
+	}
+	_, err := h.Get(capability.Routing)
+	if err == nil {
+		t.Fatalf("expected dormant get error")
+	}
+	h.Store(testRegistry())
+	if !h.Ready() {
+		t.Fatalf("expected ready after store")
+	}
+	if _, err := h.Get(capability.Routing); err != nil {
+		t.Fatalf("Get() error = %v", err)
 	}
 }
 

@@ -8,7 +8,6 @@ Standalone Go service that exposes AI capabilities over Redis CloudEvents and ke
 - Internal priority lanes: `queue:ai.requests:critical|high|medium|low`
 - Output queue: `queue:ai.responses`
 - Capabilities: `routing`, `intent-classification`, `translate`
-- Per-capability LLM URL + model (defaults point at `http://llm-model:11434`)
 - Health: `GET /health` (HTML), `GET /health.json` (JSON) on port 80
 - Docker network: `construction_dev` (external)
 
@@ -16,11 +15,22 @@ Applications request a **capability**. The gateway maps that capability to a con
 
 Optional `data.priority` on each request selects a processing lane: `CRITICAL`, `HIGH`, `MEDIUM`, or `LOW` (case-insensitive). Missing or invalid values default to `LOW`. The gateway demuxes the input list into Redis lanes and schedules work with fairness counters (see Configuration).
 
+### Configuration management
+
+Runtime configuration (models, capability bindings, input character limits, Redis ingress, CloudEvent prefix, priority fairness) comes from a **manifest**, not from `.env`.
+
+- **Primary path:** poll `MANIFEST_URL` every `MANIFEST_POLLING_INTERVAL`. Until a valid manifest is applied, the gateway stays **dormant** (process up, health reports `dormant`, no Redis consumer / capability work).
+- **Optional local file:** `--manifest /path/to/manifest.json` is for development, tests, or experimental setups only. It is **not** required to boot. If the flag is set, the file must be valid or startup exits.
+- **Soft failure:** if the manager is unavailable or returns an invalid document, the gateway keeps the current snapshot (or remains dormant). A failed poll never clears a working configuration.
+- On a successful apply, the gateway activates (or updates) the data plane using **rank 0** model bindings from `capability_models`. Ranked fallbacks are reserved for later.
+
+Compose for local/dev mounts `manifest.json` and passes `--manifest` so the stack works without AI Manager. Production-oriented runs can omit that flag and wait for the manager.
+
 For planned control-plane / data-plane separation, pluggable ingestion adapters, and the AI Gateway Manager, see [docs/future-architecture.md](docs/future-architecture.md).
 
 ## Prerequisites
 
-1. Start the sibling construction stack so Redis and Ollama (`llm-model`) are available on the shared Docker network.
+1. Start the sibling construction stack so Redis and Ollama (`llm-model` / `foundation-model`) are available on the shared Docker network.
 
 2. Ensure the `construction_dev` network exists:
 
@@ -28,13 +38,14 @@ For planned control-plane / data-plane separation, pluggable ingestion adapters,
 docker network ls | grep construction_dev
 ```
 
-3. Pull the models configured for each capability (defaults below). On startup the gateway checks each capability’s LLM URL and pulls any missing configured models. **Redis is required** (startup exits if unreachable). Models are best-effort: if at least one configured model is available on its LLM, startup continues and missing models are logged as warnings; startup exits only when none are available.
+3. For local/dev, provide a manifest (see below). On apply the gateway checks each capability’s LLM URL and pulls any missing configured models. **Redis must be reachable when a manifest is applied** (apply fails and the previous snapshot is kept, or the gateway stays dormant). Models are best-effort: if at least one configured model is available on its LLM, apply continues and missing models are logged as warnings; apply fails only when none are available.
 
 ## Run locally in Docker
 
 ```bash
 cp .env.dist .env
-# Edit .env if your local stack uses different hostnames or CloudEvent type prefixes.
+cp manifest.json.dist manifest.json
+# Edit .env / manifest.json for private hostnames or CloudEvent prefixes.
 docker compose up --build
 ```
 
@@ -42,58 +53,87 @@ Health endpoints are published on host port `18080` by default (`http://localhos
 
 ## Configuration
 
-Copy `.env.dist` to `.env` and adjust as needed. Public defaults use placeholder names (`llm-model`, `com.mywebsite.ai`); override them in `.env` for your private deployment.
+### Bootstrap (`.env`)
+
+Copy `.env.dist` to `.env`. These variables only configure how manifests are discovered:
 
 | Variable | Default |
 |----------|---------|
-| `REDIS_ADDR` | `redis:6379` |
-| `INPUT_QUEUE` | `ai.requests` |
-| `OUTPUT_QUEUE` | `ai.responses` |
-| `LLM_URL_ROUTING` | `http://llm-model:11434` |
-| `LLM_MODEL_ROUTING` | `qwen3:1.7b-q4_K_M` |
-| `LLM_URL_INTENT` | `http://llm-model:11434` |
-| `LLM_MODEL_INTENT` | `qwen3:4b-q4_K_M` |
-| `LLM_URL_TRANSLATE` | `http://llm-model:11434` |
-| `LLM_MODEL_TRANSLATE` | `qwen3:14b-q4_K_M` |
-| `LLM_MODEL_ROUTING_TTL` | `5m` |
-| `LLM_MODEL_INTENT_TTL` | `5m` |
-| `LLM_MODEL_TRANSLATE_TTL` | `2m` |
-| `LLM_MAX_CHARS_ROUTING` | `200` |
-| `LLM_MAX_CHARS_INTENT` | `8000` |
-| `LLM_MAX_CHARS_TRANSLATE` | `16000` |
-| `CLOUDEVENT_TYPE_PREFIX` | `com.mywebsite.ai` |
-| `HTTP_ADDR` | `:80` |
-| `BRPOP_TIMEOUT` | `5` |
-| `PRIORITY_HIGH_COUNT` | `3` |
-| `PRIORITY_MEDIUM_COUNT` | `3` |
+| `MANIFEST_URL` | `http://ai-manager:80/manifest.json` |
+| `MANIFEST_POLLING_INTERVAL` | `5m` |
 | `DEBUG` | `false` |
-
-Each capability has its own `LLM_URL_*` and `LLM_MODEL_*`. Each `*_TTL` value is passed to that endpoint as `keep_alive` (for example `2m`, `90s`).
 
 When `DEBUG=true`, the logger also emits Debug-level full Redis and Ollama payloads (`incoming/outgoing traffic payload`, `ollama incoming` / `ollama outgoing`) and appends the same JSON logs to `debug.log`.
 
-Request/completed/failed CloudEvent types are derived from `CLOUDEVENT_TYPE_PREFIX` as `{prefix}.request`, `{prefix}.request.completed`, and `{prefix}.request.failed`.
+### Manifest (`manifest.json`)
+
+Copy `manifest.json.dist` to `manifest.json` for local/dev. Public defaults use placeholder names (`llm-model`, `com.mywebsite.ai`). Local private copies may use deploy-specific hostnames (for example `foundation-model`) and CloudEvent prefixes.
+
+| Field | Purpose |
+|-------|---------|
+| `capabilities` | Declared capability ids (must include `routing`, `intent-classification`, `translate`) |
+| `models` | Catalog entries with `id`, `url`, `model` (Ollama name), `keep_alive_seconds` |
+| `capability_models` | Per-capability ranked list of model `id`s (rank `0` is used today; higher ranks are reserved for failover). Optional `max_input_chars` on rank `0` (defaults: routing `200`, intent-classification `8000`, translate `16000`) |
+| `ingress` | Redis adapter, address, ingress/egress channels, BRPOP timeout |
+| `config` | CloudEvent `message_prefix`, `http_address`, priority fairness counts |
+
+Example (trimmed):
+
+```json
+{
+  "capabilities": ["routing", "intent-classification", "translate"],
+  "models": [
+    {
+      "id": "qwen3:1.7b",
+      "url": "http://llm-model:11434",
+      "model": "qwen3:1.7b-q4_K_M",
+      "keep_alive_seconds": 300
+    }
+  ],
+  "capability_models": {
+    "routing": [
+      {"rank": 0, "model": "qwen3:1.7b", "max_input_chars": 200},
+      {"rank": 1, "model": "qwen3:4b"}
+    ]
+  },
+  "ingress": {
+    "adapter": "redis",
+    "address": "redis:6379",
+    "ingress_channel": "ai.requests",
+    "egress_channel": "ai.responses",
+    "brpop_timeout_seconds": 5
+  },
+  "config": {
+    "message_prefix": "com.mywebsite.ai",
+    "http_address": ":80",
+    "priority_count_high": 3,
+    "priority_count_medium": 3
+  }
+}
+```
+
+Request/completed/failed CloudEvent types are derived from `config.message_prefix` as `{prefix}.request`, `{prefix}.request.completed`, and `{prefix}.request.failed`.
 
 ### Priority fairness
 
-Scheduling order:
+Scheduling order (thresholds come from the manifest `config` section):
 
 1. `CRITICAL` always first (does not affect counters)
 2. `LOW` when due (see below)
-3. `MEDIUM` when due (`PRIORITY_HIGH_COUNT` HIGH messages since the last due MEDIUM)
+3. `MEDIUM` when due (`priority_count_high` HIGH messages since the last due MEDIUM)
 4. otherwise prefer `HIGH`, then `MEDIUM`, then `LOW`
 
 Fairness counters reset when their threshold is reached:
 
-- Every `PRIORITY_HIGH_COUNT` HIGH messages unlocks one MEDIUM
-- Every `PRIORITY_MEDIUM_COUNT` MEDIUM messages unlocks one LOW
-- Every `PRIORITY_HIGH_COUNT * PRIORITY_MEDIUM_COUNT` HIGH messages unlocks one LOW
+- Every `priority_count_high` HIGH messages unlocks one MEDIUM
+- Every `priority_count_medium` MEDIUM messages unlocks one LOW
+- Every `priority_count_high * priority_count_medium` HIGH messages unlocks one LOW
 
 With the defaults (`3` / `3`): every 3 HIGH → 1 MEDIUM; every 3 MEDIUM → 1 LOW; every 9 HIGH → 1 LOW. Example: after 9 HIGH and 2 MEDIUM, a LOW may run; processing one more MEDIUM then unlocks another LOW.
 
 ## Capability contract
 
-Request type: `{CLOUDEVENT_TYPE_PREFIX}.request` (default `com.mywebsite.ai.request`)
+Request type: `{message_prefix}.request` (default `com.mywebsite.ai.request`)
 
 ```json
 {
@@ -160,7 +200,7 @@ Translate example:
 
 Success: `{prefix}.request.completed` with request `data` merged back in, plus `data.capability` and `data.result` (no `model` field). Gateway fields overwrite matching request keys.
 
-Failure: `{prefix}.request.failed` with request `data` merged back in, plus `data.error` (and `data.capability` when known). Unavailable models are logged and returned this way. When input exceeds the per-capability character limit (`LLM_MAX_CHARS_*`), `data.error` is a structured object: `{"reason":"Prompt is outside bounds","max_characters":"<limit>"}`.
+Failure: `{prefix}.request.failed` with request `data` merged back in, plus `data.error` (and `data.capability` when known). Unavailable models are logged and returned this way. When input exceeds the per-capability character limit (`max_input_chars` on the rank-0 capability model binding), `data.error` is a structured object: `{"reason":"Prompt is outside bounds","max_characters":"<limit>"}`.
 
 ## Health endpoints
 
@@ -171,14 +211,14 @@ Failure: `{prefix}.request.failed` with request `data` merged back in, plus `dat
 
 Status values:
 
-- Per capability: `available` / `unavailable`
-- Overall: `ready` / `not_ready`
+- Overall: `ready` / `not_ready` / `dormant` (awaiting manifest)
+- Per capability: `available` / `unavailable` (omitted while dormant)
 
-HTTP status is `200` when ready and `503` when not ready. Model names appear only on health endpoints (ops), not on successful queue responses.
+HTTP status is `200` when ready and `503` when not ready or dormant. Model names appear only on health endpoints (ops), not on successful queue responses.
 
 ## Manual smoke test
 
-With the gateway running:
+With the gateway running and a manifest applied:
 
 ```bash
 chmod +x scripts/push-test-event.sh
@@ -186,7 +226,7 @@ chmod +x scripts/push-test-event.sh
 CAPABILITY=routing ./scripts/push-test-event.sh
 ```
 
-If your `.env` overrides `CLOUDEVENT_TYPE_PREFIX`, export the same value (or `EVENT_TYPE`) when running the smoke script.
+If your manifest overrides `message_prefix`, export the same value as `CLOUDEVENT_TYPE_PREFIX` (or `EVENT_TYPE`) when running the smoke script.
 
 ```bash
 curl -sS http://localhost:18080/health.json
@@ -206,6 +246,13 @@ With Go installed locally:
 make test
 make test-cover
 ```
+
+Manifest ingestion coverage lives in `internal/configmgmt` and includes:
+
+- loading/validating `manifest.json.dist`
+- parse/load/fetch error paths
+- rank-0 resolution and fingerprint changes
+- dormant boot, remote apply, soft-fail keep-current, and reject-on-apply-error behavior
 
 Dev-only integration test against live Redis on `construction_dev` (not run by `make test` / `make test-docker`):
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode/utf8"
 )
 
@@ -35,35 +36,87 @@ type Registry struct {
 	defs map[string]Definition
 }
 
-func NewRegistry(routing, intent, translate ModelBinding) *Registry {
-	return &Registry{
-		defs: map[string]Definition{
-			Routing: {
-				Name:          Routing,
-				BaseURL:       strings.TrimRight(strings.TrimSpace(routing.BaseURL), "/"),
-				Model:         strings.TrimSpace(routing.Model),
-				KeepAlive:     strings.TrimSpace(routing.KeepAlive),
-				SystemPrompt:  routingSystemPrompt,
-				MaxInputChars: routing.MaxInputChars,
-			},
-			IntentClassification: {
-				Name:          IntentClassification,
-				BaseURL:       strings.TrimRight(strings.TrimSpace(intent.BaseURL), "/"),
-				Model:         strings.TrimSpace(intent.Model),
-				KeepAlive:     strings.TrimSpace(intent.KeepAlive),
-				SystemPrompt:  intentSystemPrompt,
-				MaxInputChars: intent.MaxInputChars,
-			},
-			Translate: {
-				Name:          Translate,
-				BaseURL:       strings.TrimRight(strings.TrimSpace(translate.BaseURL), "/"),
-				Model:         strings.TrimSpace(translate.Model),
-				KeepAlive:     strings.TrimSpace(translate.KeepAlive),
-				SystemPrompt:  translateSystemPrompt,
-				MaxInputChars: translate.MaxInputChars,
-			},
-		},
+var knownSystemPrompts = map[string]string{
+	Routing:              routingSystemPrompt,
+	IntentClassification: intentSystemPrompt,
+	Translate:            translateSystemPrompt,
+}
+
+// NewRegistryFromBindings builds a registry from capability→model bindings.
+// All known capabilities (routing, intent-classification, translate) must be present.
+func NewRegistryFromBindings(bindings map[string]ModelBinding) (*Registry, error) {
+	if bindings == nil {
+		return nil, fmt.Errorf("bindings must not be nil")
 	}
+	defs := make(map[string]Definition, len(knownSystemPrompts))
+	for name, prompt := range knownSystemPrompts {
+		binding, ok := bindings[name]
+		if !ok {
+			return nil, fmt.Errorf("missing binding for capability %s", name)
+		}
+		defs[name] = Definition{
+			Name:          name,
+			BaseURL:       strings.TrimRight(strings.TrimSpace(binding.BaseURL), "/"),
+			Model:         strings.TrimSpace(binding.Model),
+			KeepAlive:     strings.TrimSpace(binding.KeepAlive),
+			SystemPrompt:  prompt,
+			MaxInputChars: binding.MaxInputChars,
+		}
+	}
+	return &Registry{defs: defs}, nil
+}
+
+// NewRegistry builds a registry from the three fixed capability bindings.
+func NewRegistry(routing, intent, translate ModelBinding) *Registry {
+	reg, err := NewRegistryFromBindings(map[string]ModelBinding{
+		Routing:              routing,
+		IntentClassification: intent,
+		Translate:            translate,
+	})
+	if err != nil {
+		panic(err)
+	}
+	return reg
+}
+
+// Holder is a thread-safe registry pointer used while manifests are reloaded.
+type Holder struct {
+	mu  sync.RWMutex
+	reg *Registry
+}
+
+func NewHolder() *Holder {
+	return &Holder{}
+}
+
+func (h *Holder) Store(reg *Registry) {
+	h.mu.Lock()
+	h.reg = reg
+	h.mu.Unlock()
+}
+
+func (h *Holder) Get(name string) (Definition, error) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if h.reg == nil {
+		return Definition{}, fmt.Errorf("gateway is dormant; no manifest applied")
+	}
+	return h.reg.Get(name)
+}
+
+func (h *Holder) All() []Definition {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if h.reg == nil {
+		return nil
+	}
+	return h.reg.All()
+}
+
+func (h *Holder) Ready() bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.reg != nil
 }
 
 func (r *Registry) Get(name string) (Definition, error) {

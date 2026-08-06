@@ -32,6 +32,30 @@ func testRegistry() *capability.Registry {
 	)
 }
 
+func TestHealthJSONDormant(t *testing.T) {
+	handler := health.NewHandler(capability.NewHolder(), &fakeModels{})
+	mux := http.NewServeMux()
+	handler.Register(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/health.json", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	var report health.Report
+	if err := json.Unmarshal(rec.Body.Bytes(), &report); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if report.Status != health.StatusDormant {
+		t.Fatalf("status = %q", report.Status)
+	}
+	if len(report.Capabilities) != 0 {
+		t.Fatalf("capabilities = %d", len(report.Capabilities))
+	}
+}
+
 func TestHealthJSONReady(t *testing.T) {
 	reg := testRegistry()
 	models := &fakeModels{available: map[string]bool{

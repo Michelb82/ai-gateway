@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/mywebsite/construction-ai-gateway/internal/capability"
@@ -13,9 +14,9 @@ import (
 
 func testRegistry() *capability.Registry {
 	return capability.NewRegistry(
-		capability.ModelBinding{BaseURL: "http://llm-model:11434", Model: "qwen3:1.7b-q4_K_M", KeepAlive: "5m"},
-		capability.ModelBinding{BaseURL: "http://llm-model:11434", Model: "qwen3:4b-q4_K_M", KeepAlive: "5m"},
-		capability.ModelBinding{BaseURL: "http://llm-model:11434", Model: "qwen3:14b-q4_K_M", KeepAlive: "2m"},
+		capability.ModelBinding{BaseURL: "http://llm-model:11434", Model: "qwen3:1.7b-q4_K_M", KeepAlive: "5m", MaxInputChars: 200},
+		capability.ModelBinding{BaseURL: "http://llm-model:11434", Model: "qwen3:4b-q4_K_M", KeepAlive: "5m", MaxInputChars: 8000},
+		capability.ModelBinding{BaseURL: "http://llm-model:11434", Model: "qwen3:14b-q4_K_M", KeepAlive: "2m", MaxInputChars: 16000},
 	)
 }
 
@@ -195,6 +196,49 @@ func TestHandleOllamaError(t *testing.T) {
 	_ = w.handle(context.Background(), request)
 	if publisher.events[0].Data["error"] != "boom" {
 		t.Fatalf("error = %v", publisher.events[0].Data["error"])
+	}
+}
+
+func TestHandleInputExceedsCharacterLimit(t *testing.T) {
+	longMessage := strings.Repeat("a", 201)
+	event := &cloudevent.Event{
+		Type:   cloudevent.EventTypeRequest,
+		Source: "/test",
+		ID:     "bounds-1",
+		Data: map[string]any{
+			"capability": "routing",
+			"input": map[string]any{
+				"message": longMessage,
+			},
+		},
+	}
+	publisher := &fakePublisher{}
+	ollama := &fakeOllama{result: `{"capability":"intent-classification"}`}
+	w := New(nil, publisher, ollama, &fakeModels{available: true}, testRegistry(), nil)
+	if err := w.handle(context.Background(), event); err != nil {
+		t.Fatalf("handle() error = %v", err)
+	}
+
+	response := publisher.events[0]
+	if response.Type != cloudevent.EventTypeRequestFailed {
+		t.Fatalf("Type = %q", response.Type)
+	}
+	if ollama.called {
+		t.Fatalf("Complete should not be called when input exceeds character limit")
+	}
+	input, ok := response.Data["input"].(map[string]any)
+	if !ok || input["message"] != longMessage {
+		t.Fatalf("expected original input echoed, got %v", response.Data["input"])
+	}
+	errField, ok := response.Data["error"].(map[string]any)
+	if !ok {
+		t.Fatalf("error = %T, want map", response.Data["error"])
+	}
+	if errField["reason"] != "Prompt is outside bounds" {
+		t.Fatalf("reason = %v", errField["reason"])
+	}
+	if errField["max_characters"] != "200" {
+		t.Fatalf("max_characters = %v", errField["max_characters"])
 	}
 }
 

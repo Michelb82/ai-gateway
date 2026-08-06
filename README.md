@@ -16,6 +16,8 @@ Applications request a **capability**. The gateway maps that capability to a con
 
 Optional `data.priority` on each request selects a processing lane: `CRITICAL`, `HIGH`, `MEDIUM`, or `LOW` (case-insensitive). Missing or invalid values default to `LOW`. The gateway demuxes the input list into Redis lanes and schedules work with fairness counters (see Configuration).
 
+For planned control-plane / data-plane separation, pluggable ingestion adapters, and the AI Gateway Manager, see [docs/future-architecture.md](docs/future-architecture.md).
+
 ## Prerequisites
 
 1. Start the sibling construction stack so Redis and Ollama (`llm-model`) are available on the shared Docker network.
@@ -56,6 +58,9 @@ Copy `.env.dist` to `.env` and adjust as needed. Public defaults use placeholder
 | `LLM_MODEL_ROUTING_TTL` | `5m` |
 | `LLM_MODEL_INTENT_TTL` | `5m` |
 | `LLM_MODEL_TRANSLATE_TTL` | `2m` |
+| `LLM_MAX_CHARS_ROUTING` | `200` |
+| `LLM_MAX_CHARS_INTENT` | `8000` |
+| `LLM_MAX_CHARS_TRANSLATE` | `16000` |
 | `CLOUDEVENT_TYPE_PREFIX` | `com.mywebsite.ai` |
 | `HTTP_ADDR` | `:80` |
 | `BRPOP_TIMEOUT` | `5` |
@@ -155,7 +160,7 @@ Translate example:
 
 Success: `{prefix}.request.completed` with request `data` merged back in, plus `data.capability` and `data.result` (no `model` field). Gateway fields overwrite matching request keys.
 
-Failure: `{prefix}.request.failed` with request `data` merged back in, plus `data.error` (and `data.capability` when known). Unavailable models are logged and returned this way.
+Failure: `{prefix}.request.failed` with request `data` merged back in, plus `data.error` (and `data.capability` when known). Unavailable models are logged and returned this way. When input exceeds the per-capability character limit (`LLM_MAX_CHARS_*`), `data.error` is a structured object: `{"reason":"Prompt is outside bounds","max_characters":"<limit>"}`.
 
 ## Health endpoints
 

@@ -3,7 +3,9 @@ package capability
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 const (
@@ -13,18 +15,20 @@ const (
 )
 
 type Definition struct {
-	Name         string
-	BaseURL      string
-	Model        string
-	KeepAlive    string
-	SystemPrompt string
+	Name          string
+	BaseURL       string
+	Model         string
+	KeepAlive     string
+	SystemPrompt  string
+	MaxInputChars int
 }
 
-// ModelBinding maps a capability to its LLM endpoint, model, and keep-alive TTL.
+// ModelBinding maps a capability to its LLM endpoint, model, keep-alive TTL, and input bounds.
 type ModelBinding struct {
-	BaseURL   string
-	Model     string
-	KeepAlive string
+	BaseURL       string
+	Model         string
+	KeepAlive     string
+	MaxInputChars int
 }
 
 type Registry struct {
@@ -35,25 +39,28 @@ func NewRegistry(routing, intent, translate ModelBinding) *Registry {
 	return &Registry{
 		defs: map[string]Definition{
 			Routing: {
-				Name:         Routing,
-				BaseURL:      strings.TrimRight(strings.TrimSpace(routing.BaseURL), "/"),
-				Model:        strings.TrimSpace(routing.Model),
-				KeepAlive:    strings.TrimSpace(routing.KeepAlive),
-				SystemPrompt: routingSystemPrompt,
+				Name:          Routing,
+				BaseURL:       strings.TrimRight(strings.TrimSpace(routing.BaseURL), "/"),
+				Model:         strings.TrimSpace(routing.Model),
+				KeepAlive:     strings.TrimSpace(routing.KeepAlive),
+				SystemPrompt:  routingSystemPrompt,
+				MaxInputChars: routing.MaxInputChars,
 			},
 			IntentClassification: {
-				Name:         IntentClassification,
-				BaseURL:      strings.TrimRight(strings.TrimSpace(intent.BaseURL), "/"),
-				Model:        strings.TrimSpace(intent.Model),
-				KeepAlive:    strings.TrimSpace(intent.KeepAlive),
-				SystemPrompt: intentSystemPrompt,
+				Name:          IntentClassification,
+				BaseURL:       strings.TrimRight(strings.TrimSpace(intent.BaseURL), "/"),
+				Model:         strings.TrimSpace(intent.Model),
+				KeepAlive:     strings.TrimSpace(intent.KeepAlive),
+				SystemPrompt:  intentSystemPrompt,
+				MaxInputChars: intent.MaxInputChars,
 			},
 			Translate: {
-				Name:         Translate,
-				BaseURL:      strings.TrimRight(strings.TrimSpace(translate.BaseURL), "/"),
-				Model:        strings.TrimSpace(translate.Model),
-				KeepAlive:    strings.TrimSpace(translate.KeepAlive),
-				SystemPrompt: translateSystemPrompt,
+				Name:          Translate,
+				BaseURL:       strings.TrimRight(strings.TrimSpace(translate.BaseURL), "/"),
+				Model:         strings.TrimSpace(translate.Model),
+				KeepAlive:     strings.TrimSpace(translate.KeepAlive),
+				SystemPrompt:  translateSystemPrompt,
+				MaxInputChars: translate.MaxInputChars,
 			},
 		},
 	}
@@ -82,6 +89,43 @@ func (r *Registry) All() []Definition {
 		}
 	}
 	return out
+}
+
+// PromptBoundsError is returned when user input exceeds the capability character limit.
+type PromptBoundsError struct {
+	MaxCharacters int
+}
+
+func (e PromptBoundsError) Error() string {
+	return fmt.Sprintf("prompt is outside bounds (max %d characters)", e.MaxCharacters)
+}
+
+func (e PromptBoundsError) ToMap() map[string]any {
+	return map[string]any{
+		"reason":         "Prompt is outside bounds",
+		"max_characters": strconv.Itoa(e.MaxCharacters),
+	}
+}
+
+func ValidateInputBounds(def Definition, input map[string]any) error {
+	if def.MaxInputChars <= 0 {
+		return nil
+	}
+
+	var content string
+	switch def.Name {
+	case Routing, IntentClassification:
+		content = stringValue(input["message"])
+	case Translate:
+		content = stringValue(input["text"])
+	default:
+		return fmt.Errorf("unknown capability: %s", def.Name)
+	}
+
+	if utf8.RuneCountInString(content) > def.MaxInputChars {
+		return PromptBoundsError{MaxCharacters: def.MaxInputChars}
+	}
+	return nil
 }
 
 func BuildPrompts(def Definition, input map[string]any) (systemPrompt, userPrompt string, err error) {

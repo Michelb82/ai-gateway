@@ -58,9 +58,9 @@ func main() {
 	}
 
 	registry := capability.NewRegistry(
-		capability.ModelBinding{BaseURL: cfg.LLMURLRouting, Model: cfg.LLMModelRouting, KeepAlive: cfg.LLMModelRoutingTTL},
-		capability.ModelBinding{BaseURL: cfg.LLMURLIntent, Model: cfg.LLMModelIntent, KeepAlive: cfg.LLMModelIntentTTL},
-		capability.ModelBinding{BaseURL: cfg.LLMURLTranslate, Model: cfg.LLMModelTranslate, KeepAlive: cfg.LLMModelTranslateTTL},
+		capability.ModelBinding{BaseURL: cfg.LLMURLRouting, Model: cfg.LLMModelRouting, KeepAlive: cfg.LLMModelRoutingTTL, MaxInputChars: cfg.LLMMaxCharsRouting},
+		capability.ModelBinding{BaseURL: cfg.LLMURLIntent, Model: cfg.LLMModelIntent, KeepAlive: cfg.LLMModelIntentTTL, MaxInputChars: cfg.LLMMaxCharsIntent},
+		capability.ModelBinding{BaseURL: cfg.LLMURLTranslate, Model: cfg.LLMModelTranslate, KeepAlive: cfg.LLMModelTranslateTTL, MaxInputChars: cfg.LLMMaxCharsTranslate},
 	)
 	eventQueue := queue.NewRedisQueue(
 		redisClient,

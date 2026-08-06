@@ -25,7 +25,7 @@ func TestPriorityConsumeAgainstLiveRedis(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := client.Ping(ctx).Err(); err != nil {
-		t.Fatalf("Ping(%s) error = %v (is Redis up on construction_dev?)", addr, err)
+		t.Fatalf("Ping(%s) error = %v (is Redis up on dev?)", addr, err)
 	}
 
 	inputQueue := fmt.Sprintf("ai.requests.priority-test-%d", os.Getpid())

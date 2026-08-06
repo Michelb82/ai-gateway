@@ -9,7 +9,7 @@ Standalone Go service that exposes AI capabilities over Redis CloudEvents and ke
 - Output queue: `queue:ai.responses`
 - Capabilities: `routing`, `intent-classification`, `translate`
 - Health: `GET /health` (HTML), `GET /health.json` (JSON) on port 80
-- Docker network: `construction_dev` (external)
+- Docker network: `dev` (external)
 
 Applications request a **capability**. The gateway maps that capability to a configured LLM endpoint and (quantized) model and never accepts caller-supplied model names.
 
@@ -32,10 +32,10 @@ For planned control-plane / data-plane separation, pluggable ingestion adapters,
 
 1. Start the sibling construction stack so Redis and Ollama (`llm-model` / `foundation-model`) are available on the shared Docker network.
 
-2. Ensure the `construction_dev` network exists:
+2. Ensure the `dev` network exists:
 
 ```bash
-docker network ls | grep construction_dev
+docker network ls | grep dev
 ```
 
 3. For local/dev, provide a manifest (see below). On apply the gateway checks each capability’s LLM URL and pulls any missing configured models. **Redis must be reachable when a manifest is applied** (apply fails and the previous snapshot is kept, or the gateway stays dormant). Models are best-effort: if at least one configured model is available on its LLM, apply continues and missing models are logged as warnings; apply fails only when none are available.
@@ -254,7 +254,7 @@ Manifest ingestion coverage lives in `internal/configmgmt` and includes:
 - rank-0 resolution and fingerprint changes
 - dormant boot, remote apply, soft-fail keep-current, and reject-on-apply-error behavior
 
-Dev-only integration test against live Redis on `construction_dev` (not run by `make test` / `make test-docker`):
+Dev-only integration test against live Redis on `dev` (not run by `make test` / `make test-docker`):
 
 ```bash
 make test-integration

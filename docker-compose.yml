@@ -17,8 +17,8 @@ services:
       - ./manifest.json:/app/manifest.json:ro
       - ./debug.log:/app/debug.log
     networks:
-      - construction_dev
+      - dev
 
 networks:
-  construction_dev:
+  dev:
     external: true

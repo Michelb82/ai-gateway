@@ -1,0 +1,16 @@
+---
+description: Require feature/gw-*.md for every feature and include it in commits
+alwaysApply: true
+---
+
+# Feature tracking
+
+Follow [AGENTS.md](AGENTS.md) for this repository.
+
+On every feature request:
+
+1. Create `feature/gw-<N>.md` with the next free number (after existing `feature/gw-*.md`).
+2. Use Problem / Impact / Shorthand solution / Related code sections.
+3. Stage and commit that file with the feature changes — never land feature code without it.
+
+If implementing an existing `feature/gw-*.md`, update that file in the same commit instead of creating a duplicate.

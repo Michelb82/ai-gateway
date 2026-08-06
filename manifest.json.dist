@@ -1,0 +1,55 @@
+{
+  "capabilities": [
+    "routing",
+    "intent-classification",
+    "translate"
+  ],
+  "models": [
+    {
+      "id": "qwen3:1.7b",
+      "url": "http://llm-model:11434",
+      "model": "qwen3:1.7b-q4_K_M",
+      "keep_alive_seconds": 300
+    },
+    {
+      "id": "qwen3:4b",
+      "url": "http://llm-model:11434",
+      "model": "qwen3:4b-q4_K_M",
+      "keep_alive_seconds": 300
+    },
+    {
+      "id": "qwen3:14b",
+      "url": "http://llm-model:11434",
+      "model": "qwen3:14b-q4_K_M",
+      "keep_alive_seconds": 120
+    }
+  ],
+  "capability_models": {
+    "routing": [
+      {"rank": 0, "model": "qwen3:1.7b", "max_input_chars": 200},
+      {"rank": 1, "model": "qwen3:4b"}
+    ],
+    "intent-classification": [
+      {"rank": 0, "model": "qwen3:4b", "max_input_chars": 8000},
+      {"rank": 1, "model": "qwen3:14b"},
+      {"rank": 2, "model": "qwen3:1.7b"}
+    ],
+    "translate": [
+      {"rank": 0, "model": "qwen3:14b", "max_input_chars": 16000},
+      {"rank": 1, "model": "qwen3:4b"}
+    ]
+  },
+  "ingress": {
+    "adapter": "redis",
+    "address": "redis:6379",
+    "ingress_channel": "ai.requests",
+    "egress_channel": "ai.responses",
+    "brpop_timeout_seconds": 5
+  },
+  "config": {
+    "message_prefix": "com.mywebsite.ai",
+    "http_address": ":80",
+    "priority_count_high": 3,
+    "priority_count_medium": 3
+  }
+}

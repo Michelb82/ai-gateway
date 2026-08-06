@@ -15,12 +15,17 @@ import (
 const (
 	StatusReady       = "ready"
 	StatusNotReady    = "not_ready"
+	StatusDormant     = "dormant"
 	StatusAvailable   = "available"
 	StatusUnavailable = "unavailable"
 )
 
 type ModelChecker interface {
 	ModelAvailable(ctx context.Context, baseURL, name string) (bool, error)
+}
+
+type CapabilityLister interface {
+	All() []capability.Definition
 }
 
 type CapabilityStatus struct {
@@ -37,11 +42,11 @@ type Report struct {
 }
 
 type Handler struct {
-	registry *capability.Registry
+	registry CapabilityLister
 	models   ModelChecker
 }
 
-func NewHandler(registry *capability.Registry, models ModelChecker) *Handler {
+func NewHandler(registry CapabilityLister, models ModelChecker) *Handler {
 	return &Handler{
 		registry: registry,
 		models:   models,
@@ -79,6 +84,13 @@ func (h *Handler) handleJSON(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) buildReport(ctx context.Context) Report {
 	defs := h.registry.All()
+	if len(defs) == 0 {
+		return Report{
+			Status:       StatusDormant,
+			Capabilities: []CapabilityStatus{},
+		}
+	}
+
 	statuses := make([]CapabilityStatus, 0, len(defs))
 	overall := StatusReady
 
@@ -121,8 +133,13 @@ func renderHTML(report Report) string {
 	var b strings.Builder
 	b.WriteString("<!DOCTYPE html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><title>AI capability health</title></head>\n<body>\n")
 	b.WriteString("<h1>AI capability health</h1>\n")
-	b.WriteString(fmt.Sprintf("<p>Overall: <span id=\"overall\" style=\"color: %s\">%s</span></p>\n",
-		colorFor(report.Status), html.EscapeString(report.Status)))
+	if report.Status == StatusDormant {
+		b.WriteString(fmt.Sprintf("<p>Overall: <span id=\"overall\" style=\"color: %s\">%s</span> (awaiting manifest)</p>\n",
+			colorFor(report.Status), html.EscapeString(report.Status)))
+	} else {
+		b.WriteString(fmt.Sprintf("<p>Overall: <span id=\"overall\" style=\"color: %s\">%s</span></p>\n",
+			colorFor(report.Status), html.EscapeString(report.Status)))
+	}
 
 	for _, item := range report.Capabilities {
 		b.WriteString(fmt.Sprintf("<div id=\"%s\">%s: <span style=\"color: %s\">%s</span></div>\n",

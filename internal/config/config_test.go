@@ -1,179 +1,72 @@
 package config_test
 
 import (
-	"os"
 	"testing"
+	"time"
 
 	"github.com/mywebsite/construction-ai-gateway/internal/config"
 )
 
 func TestLoadDefaults(t *testing.T) {
-	clearLLMEnv(t)
+	clearEnv(t)
 
 	cfg, err := config.Load()
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-
-	if cfg.LLMURLRouting != "http://llm-model:11434" {
-		t.Fatalf("LLMURLRouting = %q", cfg.LLMURLRouting)
+	if cfg.ManifestURL != "http://ai-manager:80/manifest.json" {
+		t.Fatalf("ManifestURL = %q", cfg.ManifestURL)
 	}
-	if cfg.LLMURLIntent != "http://llm-model:11434" {
-		t.Fatalf("LLMURLIntent = %q", cfg.LLMURLIntent)
+	if cfg.ManifestPollingInterval != 5*time.Minute {
+		t.Fatalf("ManifestPollingInterval = %v", cfg.ManifestPollingInterval)
 	}
-	if cfg.LLMURLTranslate != "http://llm-model:11434" {
-		t.Fatalf("LLMURLTranslate = %q", cfg.LLMURLTranslate)
-	}
-	if cfg.CloudEventTypePrefix != "com.mywebsite.ai" {
-		t.Fatalf("CloudEventTypePrefix = %q", cfg.CloudEventTypePrefix)
-	}
-	if cfg.LLMModelRouting != "qwen3:1.7b-q4_K_M" {
-		t.Fatalf("LLMModelRouting = %q", cfg.LLMModelRouting)
-	}
-	if cfg.LLMModelRoutingTTL != "5m" {
-		t.Fatalf("LLMModelRoutingTTL = %q", cfg.LLMModelRoutingTTL)
-	}
-	if cfg.LLMModelIntentTTL != "5m" {
-		t.Fatalf("LLMModelIntentTTL = %q", cfg.LLMModelIntentTTL)
-	}
-	if cfg.LLMModelTranslateTTL != "2m" {
-		t.Fatalf("LLMModelTranslateTTL = %q", cfg.LLMModelTranslateTTL)
-	}
-	if cfg.PriorityHighCount != 3 {
-		t.Fatalf("PriorityHighCount = %d, want 3", cfg.PriorityHighCount)
-	}
-	if cfg.PriorityMediumCount != 3 {
-		t.Fatalf("PriorityMediumCount = %d, want 3", cfg.PriorityMediumCount)
-	}
-	if cfg.LLMMaxCharsRouting != 200 {
-		t.Fatalf("LLMMaxCharsRouting = %d, want 200", cfg.LLMMaxCharsRouting)
-	}
-	if cfg.LLMMaxCharsIntent != 8000 {
-		t.Fatalf("LLMMaxCharsIntent = %d, want 8000", cfg.LLMMaxCharsIntent)
-	}
-	if cfg.LLMMaxCharsTranslate != 16000 {
-		t.Fatalf("LLMMaxCharsTranslate = %d, want 16000", cfg.LLMMaxCharsTranslate)
+	if cfg.Debug {
+		t.Fatalf("Debug = true, want false")
 	}
 }
 
 func TestLoadOverrides(t *testing.T) {
-	t.Setenv("REDIS_ADDR", "localhost:6380")
-	t.Setenv("INPUT_QUEUE", "custom.in")
-	t.Setenv("OUTPUT_QUEUE", "custom.out")
-	t.Setenv("LLM_URL_ROUTING", "http://routing:11434/")
-	t.Setenv("LLM_URL_INTENT", "http://intent:11434/")
-	t.Setenv("LLM_URL_TRANSLATE", "http://translate:11434/")
-	t.Setenv("LLM_MODEL_ROUTING", "routing-model")
-	t.Setenv("LLM_MODEL_INTENT", "intent-model")
-	t.Setenv("LLM_MODEL_TRANSLATE", "translate-model")
-	t.Setenv("LLM_MODEL_ROUTING_TTL", "10m")
-	t.Setenv("LLM_MODEL_INTENT_TTL", "3m")
-	t.Setenv("LLM_MODEL_TRANSLATE_TTL", "90s")
-	t.Setenv("CLOUDEVENT_TYPE_PREFIX", "com.example.ai")
-	t.Setenv("HTTP_ADDR", ":8080")
-	t.Setenv("BRPOP_TIMEOUT", "10")
-	t.Setenv("PRIORITY_HIGH_COUNT", "5")
-	t.Setenv("PRIORITY_MEDIUM_COUNT", "4")
-	t.Setenv("LLM_MAX_CHARS_ROUTING", "150")
-	t.Setenv("LLM_MAX_CHARS_INTENT", "5000")
-	t.Setenv("LLM_MAX_CHARS_TRANSLATE", "12000")
+	t.Setenv("MANIFEST_URL", "http://manager:8080/manifest.json")
+	t.Setenv("MANIFEST_POLLING_INTERVAL", "30s")
 	t.Setenv("DEBUG", "true")
 
 	cfg, err := config.Load()
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-
-	if cfg.LLMURLRouting != "http://routing:11434" {
-		t.Fatalf("LLMURLRouting = %q", cfg.LLMURLRouting)
+	if cfg.ManifestURL != "http://manager:8080/manifest.json" {
+		t.Fatalf("ManifestURL = %q", cfg.ManifestURL)
 	}
-	if cfg.LLMURLIntent != "http://intent:11434" {
-		t.Fatalf("LLMURLIntent = %q", cfg.LLMURLIntent)
+	if cfg.ManifestPollingInterval != 30*time.Second {
+		t.Fatalf("ManifestPollingInterval = %v", cfg.ManifestPollingInterval)
 	}
-	if cfg.LLMModelTranslate != "translate-model" {
-		t.Fatalf("LLMModelTranslate = %q", cfg.LLMModelTranslate)
-	}
-	if cfg.CloudEventTypePrefix != "com.example.ai" {
-		t.Fatalf("CloudEventTypePrefix = %q", cfg.CloudEventTypePrefix)
-	}
-	if cfg.LLMModelRoutingTTL != "10m" {
-		t.Fatalf("LLMModelRoutingTTL = %q", cfg.LLMModelRoutingTTL)
-	}
-	if cfg.PriorityHighCount != 5 {
-		t.Fatalf("PriorityHighCount = %d, want 5", cfg.PriorityHighCount)
-	}
-	if cfg.LLMMaxCharsRouting != 150 {
-		t.Fatalf("LLMMaxCharsRouting = %d, want 150", cfg.LLMMaxCharsRouting)
-	}
-	if cfg.LLMMaxCharsIntent != 5000 {
-		t.Fatalf("LLMMaxCharsIntent = %d, want 5000", cfg.LLMMaxCharsIntent)
-	}
-	if cfg.LLMMaxCharsTranslate != 12000 {
-		t.Fatalf("LLMMaxCharsTranslate = %d, want 12000", cfg.LLMMaxCharsTranslate)
+	if !cfg.Debug {
+		t.Fatalf("Debug = false, want true")
 	}
 }
 
-func TestLoadInvalidBRPopTimeout(t *testing.T) {
+func TestLoadInvalidPollingInterval(t *testing.T) {
 	tests := []struct {
 		name  string
 		value string
 	}{
-		{name: "non numeric", value: "abc"},
-		{name: "zero", value: "0"},
-		{name: "negative", value: "-1"},
+		{name: "not a duration", value: "abc"},
+		{name: "too short", value: "500ms"},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("BRPOP_TIMEOUT", tt.value)
+			t.Setenv("MANIFEST_POLLING_INTERVAL", tt.value)
 			_, err := config.Load()
 			if err == nil {
-				t.Fatalf("Load() expected error for BRPOP_TIMEOUT=%q", tt.value)
+				t.Fatalf("Load() expected error for MANIFEST_POLLING_INTERVAL=%q", tt.value)
 			}
 		})
 	}
 }
 
-func TestLoadInvalidPriorityCounts(t *testing.T) {
-	tests := []struct {
-		name string
-		key  string
-		val  string
-	}{
-		{name: "high non numeric", key: "PRIORITY_HIGH_COUNT", val: "abc"},
-		{name: "high zero", key: "PRIORITY_HIGH_COUNT", val: "0"},
-		{name: "medium negative", key: "PRIORITY_MEDIUM_COUNT", val: "-1"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("PRIORITY_HIGH_COUNT", "")
-			t.Setenv("PRIORITY_MEDIUM_COUNT", "")
-			t.Setenv(tt.key, tt.val)
-			_, err := config.Load()
-			if err == nil {
-				t.Fatalf("Load() expected error for %s=%q", tt.key, tt.val)
-			}
-		})
-	}
-}
-
-func clearLLMEnv(t *testing.T) {
+func clearEnv(t *testing.T) {
 	t.Helper()
-	keys := []string{
-		"REDIS_ADDR", "INPUT_QUEUE", "OUTPUT_QUEUE",
-		"LLM_URL_ROUTING", "LLM_URL_INTENT", "LLM_URL_TRANSLATE",
-		"LLM_MODEL_ROUTING", "LLM_MODEL_INTENT", "LLM_MODEL_TRANSLATE",
-		"LLM_MODEL_ROUTING_TTL", "LLM_MODEL_INTENT_TTL", "LLM_MODEL_TRANSLATE_TTL",
-		"CLOUDEVENT_TYPE_PREFIX", "HTTP_ADDR", "BRPOP_TIMEOUT",
-		"PRIORITY_HIGH_COUNT", "PRIORITY_MEDIUM_COUNT", "DEBUG",
-		"LLM_MAX_CHARS_ROUTING", "LLM_MAX_CHARS_INTENT", "LLM_MAX_CHARS_TRANSLATE",
-	}
-	for _, key := range keys {
+	for _, key := range []string{"MANIFEST_URL", "MANIFEST_POLLING_INTERVAL", "DEBUG"} {
 		t.Setenv(key, "")
 	}
-}
-
-func TestMain(m *testing.M) {
-	os.Exit(m.Run())
 }

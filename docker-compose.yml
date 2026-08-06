@@ -9,25 +9,12 @@ services:
       - path: .env
         required: false
     environment:
-      REDIS_ADDR: ${REDIS_ADDR:-redis:6379}
-      INPUT_QUEUE: ${INPUT_QUEUE:-ai.requests}
-      OUTPUT_QUEUE: ${OUTPUT_QUEUE:-ai.responses}
-      LLM_URL_ROUTING: ${LLM_URL_ROUTING:-http://llm-model:11434}
-      LLM_MODEL_ROUTING: ${LLM_MODEL_ROUTING:-qwen3:1.7b-q4_K_M}
-      LLM_URL_INTENT: ${LLM_URL_INTENT:-http://llm-model:11434}
-      LLM_MODEL_INTENT: ${LLM_MODEL_INTENT:-qwen3:4b-q4_K_M}
-      LLM_URL_TRANSLATE: ${LLM_URL_TRANSLATE:-http://llm-model:11434}
-      LLM_MODEL_TRANSLATE: ${LLM_MODEL_TRANSLATE:-qwen3:14b-q4_K_M}
-      LLM_MODEL_ROUTING_TTL: ${LLM_MODEL_ROUTING_TTL:-5m}
-      LLM_MODEL_INTENT_TTL: ${LLM_MODEL_INTENT_TTL:-5m}
-      LLM_MODEL_TRANSLATE_TTL: ${LLM_MODEL_TRANSLATE_TTL:-2m}
-      CLOUDEVENT_TYPE_PREFIX: ${CLOUDEVENT_TYPE_PREFIX:-com.mywebsite.ai}
-      HTTP_ADDR: ${HTTP_ADDR:-:80}
-      BRPOP_TIMEOUT: ${BRPOP_TIMEOUT:-5}
-      PRIORITY_HIGH_COUNT: ${PRIORITY_HIGH_COUNT:-3}
-      PRIORITY_MEDIUM_COUNT: ${PRIORITY_MEDIUM_COUNT:-3}
+      MANIFEST_URL: ${MANIFEST_URL:-http://ai-manager:80/manifest.json}
+      MANIFEST_POLLING_INTERVAL: ${MANIFEST_POLLING_INTERVAL:-5m}
       DEBUG: ${DEBUG:-false}
+    command: ["--manifest", "/app/manifest.json"]
     volumes:
+      - ./manifest.json:/app/manifest.json:ro
       - ./debug.log:/app/debug.log
     networks:
       - construction_dev

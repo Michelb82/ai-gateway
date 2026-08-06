@@ -3,36 +3,15 @@ package configmgmt
 import (
 	"fmt"
 	"strings"
+
+	"github.com/mywebsite/construction-ai-gateway/internal/capability"
 )
 
-var requiredCapabilities = []string{
-	"routing",
-	"intent-classification",
-	"translate",
-}
-
 // Validate checks structural and referential integrity of a manifest.
+// Known capability ids come from the capability package; the manifest only
+// binds models (and ops settings) to those ids via capability_models.
 func Validate(m Manifest) error {
-	if len(m.Capabilities) == 0 {
-		return fmt.Errorf("manifest.capabilities must not be empty")
-	}
-
-	capSet := make(map[string]struct{}, len(m.Capabilities))
-	for _, name := range m.Capabilities {
-		name = strings.TrimSpace(name)
-		if name == "" {
-			return fmt.Errorf("manifest.capabilities contains a blank entry")
-		}
-		if _, dup := capSet[name]; dup {
-			return fmt.Errorf("manifest.capabilities duplicates %q", name)
-		}
-		capSet[name] = struct{}{}
-	}
-	for _, required := range requiredCapabilities {
-		if _, ok := capSet[required]; !ok {
-			return fmt.Errorf("manifest.capabilities missing required %q", required)
-		}
-	}
+	known := capability.Known()
 
 	if len(m.Models) == 0 {
 		return fmt.Errorf("manifest.models must not be empty")
@@ -58,10 +37,15 @@ func Validate(m Manifest) error {
 		modelsByID[id] = model
 	}
 
-	if m.CapabilityModels == nil {
+	if len(m.CapabilityModels) == 0 {
 		return fmt.Errorf("manifest.capability_models must not be empty")
 	}
-	for _, required := range requiredCapabilities {
+	for capName := range m.CapabilityModels {
+		if !capability.IsKnown(capName) {
+			return fmt.Errorf("manifest.capability_models has unknown capability %q", capName)
+		}
+	}
+	for _, required := range known {
 		refs, ok := m.CapabilityModels[required]
 		if !ok || len(refs) == 0 {
 			return fmt.Errorf("manifest.capability_models missing entries for %q", required)

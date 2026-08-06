@@ -6,13 +6,9 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-)
 
-var defaultMaxInputChars = map[string]int{
-	"routing":               200,
-	"intent-classification": 8000,
-	"translate":             16000,
-}
+	"github.com/mywebsite/construction-ai-gateway/internal/capability"
+)
 
 // Resolve turns a validated manifest into a runtime snapshot using rank-0 bindings.
 func Resolve(m Manifest) (Snapshot, error) {
@@ -21,8 +17,9 @@ func Resolve(m Manifest) (Snapshot, error) {
 		modelsByID[strings.TrimSpace(model.ID)] = model
 	}
 
-	bindings := make(map[string]ModelBinding, len(requiredCapabilities))
-	for _, capName := range requiredCapabilities {
+	known := capability.Known()
+	bindings := make(map[string]ModelBinding, len(known))
+	for _, capName := range known {
 		refs := m.CapabilityModels[capName]
 		var primary *RankedModelRef
 		for i := range refs {
@@ -40,7 +37,10 @@ func Resolve(m Manifest) (Snapshot, error) {
 		}
 		maxChars := primary.MaxInputChars
 		if maxChars <= 0 {
-			maxChars = defaultMaxInputChars[capName]
+			maxChars = capability.DefaultMaxInputChars(capName)
+		}
+		if maxChars <= 0 {
+			return Snapshot{}, fmt.Errorf("capability %s has no max_input_chars default", capName)
 		}
 		bindings[capName] = ModelBinding{
 			BaseURL:       strings.TrimRight(strings.TrimSpace(model.URL), "/"),

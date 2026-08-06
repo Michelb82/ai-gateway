@@ -62,6 +62,8 @@ Its responsibilities include:
 * Cluster health aggregation
 * Web-based management interface
 
+Today the gateway publishes a **bindings-only** manifest contract: the manager (or a local file) catalogs models and binds them to gateway-built-in capability ids. Capability prompts, I/O shapes, and parsers remain in the gateway data plane until a later control-plane design moves versioned capability definitions into the manager.
+
 The manager will configure gateway instances but will not participate in inference execution.
 
 This separation allows the management layer to evolve independently from the runtime gateway while enabling centralized configuration and operational visibility across a distributed AI Gateway deployment.

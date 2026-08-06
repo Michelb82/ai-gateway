@@ -7,7 +7,7 @@ Standalone Go service that exposes AI capabilities over Redis CloudEvents and ke
 - Input queue: `queue:ai.requests` (producers still `LPUSH` here)
 - Internal priority lanes: `queue:ai.requests:critical|high|medium|low`
 - Output queue: `queue:ai.responses`
-- Capabilities: `routing`, `intent-classification`, `translate`
+- Built-in capabilities (gateway code): `routing`, `intent-classification`, `translate`
 - Health: `GET /health` (HTML), `GET /health.json` (JSON) on port 80
 - Docker network: `dev` (external)
 
@@ -17,7 +17,7 @@ Optional `data.priority` on each request selects a processing lane: `CRITICAL`, 
 
 ### Configuration management
 
-Runtime configuration (models, capability bindings, input character limits, Redis ingress, CloudEvent prefix, priority fairness) comes from a **manifest**, not from `.env`.
+Runtime configuration (models, capability→model bindings, input character limits, Redis ingress, CloudEvent prefix, priority fairness) comes from a **manifest**, not from `.env`. The manifest is an ops/bindings document: capability prompts, I/O shapes, and parsers live in gateway code (`internal/capability`). `capability_models` must bind exactly the built-in capability ids.
 
 - **Primary path:** poll `MANIFEST_URL` every `MANIFEST_POLLING_INTERVAL`. Until a valid manifest is applied, the gateway stays **dormant** (process up, health reports `dormant`, no Redis consumer / capability work).
 - **Optional local file:** `--manifest /path/to/manifest.json` is for development, tests, or experimental setups only. It is **not** required to boot. If the flag is set, the file must be valid or startup exits.
@@ -71,9 +71,8 @@ Copy `manifest.json.dist` to `manifest.json` for local/dev. Public defaults use 
 
 | Field | Purpose |
 |-------|---------|
-| `capabilities` | Declared capability ids (must include `routing`, `intent-classification`, `translate`) |
 | `models` | Catalog entries with `id`, `url`, `model` (Ollama name), `keep_alive_seconds` |
-| `capability_models` | Per-capability ranked list of model `id`s (rank `0` is used today; higher ranks are reserved for failover). Optional `max_input_chars` on rank `0` (defaults: routing `200`, intent-classification `8000`, translate `16000`) |
+| `capability_models` | Bindings for each built-in capability (`routing`, `intent-classification`, `translate`): ranked list of model `id`s (rank `0` is used today; higher ranks are reserved for failover). Optional `max_input_chars` on rank `0` (defaults: routing `200`, intent-classification `8000`, translate `16000`). Unknown capability keys are rejected. |
 | `ingress` | Redis adapter, address, ingress/egress channels, BRPOP timeout |
 | `config` | CloudEvent `message_prefix`, `http_address`, priority fairness counts |
 
@@ -81,7 +80,6 @@ Example (trimmed):
 
 ```json
 {
-  "capabilities": ["routing", "intent-classification", "translate"],
   "models": [
     {
       "id": "qwen3:1.7b",

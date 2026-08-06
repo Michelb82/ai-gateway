@@ -15,6 +15,41 @@ const (
 	Translate            = "translate"
 )
 
+// Known returns the gateway's built-in capability ids in stable order.
+// This is the single source of truth for which capabilities exist; the
+// manifest only supplies model/ingress bindings for these names.
+func Known() []string {
+	return []string{Routing, IntentClassification, Translate}
+}
+
+// DefaultMaxInputChars returns the built-in input character limit for a
+// known capability when the manifest omits max_input_chars on rank 0.
+// Returns 0 for unknown names.
+func DefaultMaxInputChars(name string) int {
+	switch name {
+	case Routing:
+		return 200
+	case IntentClassification:
+		return 8000
+	case Translate:
+		return 16000
+	default:
+		return 0
+	}
+}
+
+// IsKnown reports whether name is exactly a built-in capability id.
+// Comparison is exact (no trim) so manifest map keys cannot sneak past
+// validation via surrounding whitespace.
+func IsKnown(name string) bool {
+	for _, known := range Known() {
+		if name == known {
+			return true
+		}
+	}
+	return false
+}
+
 type Definition struct {
 	Name          string
 	BaseURL       string
@@ -43,16 +78,21 @@ var knownSystemPrompts = map[string]string{
 }
 
 // NewRegistryFromBindings builds a registry from capability→model bindings.
-// All known capabilities (routing, intent-classification, translate) must be present.
+// All known capabilities must be present.
 func NewRegistryFromBindings(bindings map[string]ModelBinding) (*Registry, error) {
 	if bindings == nil {
 		return nil, fmt.Errorf("bindings must not be nil")
 	}
-	defs := make(map[string]Definition, len(knownSystemPrompts))
-	for name, prompt := range knownSystemPrompts {
+	known := Known()
+	defs := make(map[string]Definition, len(known))
+	for _, name := range known {
 		binding, ok := bindings[name]
 		if !ok {
 			return nil, fmt.Errorf("missing binding for capability %s", name)
+		}
+		prompt, ok := knownSystemPrompts[name]
+		if !ok || strings.TrimSpace(prompt) == "" {
+			return nil, fmt.Errorf("missing system prompt for capability %s", name)
 		}
 		defs[name] = Definition{
 			Name:          name,
@@ -66,7 +106,7 @@ func NewRegistryFromBindings(bindings map[string]ModelBinding) (*Registry, error
 	return &Registry{defs: defs}, nil
 }
 
-// NewRegistry builds a registry from the three fixed capability bindings.
+// NewRegistry builds a registry from the known capability bindings.
 func NewRegistry(routing, intent, translate ModelBinding) *Registry {
 	reg, err := NewRegistryFromBindings(map[string]ModelBinding{
 		Routing:              routing,
@@ -134,7 +174,7 @@ func (r *Registry) Get(name string) (Definition, error) {
 }
 
 func (r *Registry) All() []Definition {
-	order := []string{Routing, IntentClassification, Translate}
+	order := Known()
 	out := make([]Definition, 0, len(order))
 	for _, name := range order {
 		if def, ok := r.defs[name]; ok {

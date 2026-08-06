@@ -21,9 +21,22 @@ Make one package the source of truth for “known capabilities,” and either:
 
 Do not keep three parallel capability lists.
 
+## Status
+
+Implemented option 1 (bindings-only):
+
+- `capability.Known()` / `IsKnown` / `DefaultMaxInputChars` are the sole known-capability list
+- `configmgmt` Validate/Resolve consume that list; `requiredCapabilities` removed
+- Manifest no longer has a `capabilities` array; `capability_models` must bind exactly the built-in ids (unknown keys rejected)
+- Legacy `capabilities` JSON is ignored on parse
+- Ranked fallbacks remain validated but only rank 0 is applied (unchanged; documented as reserved)
+
+Option 2 (versioned capability defs in the control plane) is deferred to AI Gateway Manager work.
+
 ## Related code
 
-- `internal/capability/capability.go` (prompts, `BuildPrompts`, `ParseResult`)
-- `internal/configmgmt/validate.go` / `resolve.go` (`requiredCapabilities`, rank-0 only)
+- `internal/capability/capability.go` (prompts, `Known`, `BuildPrompts`, `ParseResult`)
+- `internal/configmgmt/validate.go` / `resolve.go` (bindings for `capability.Known()`, rank-0 only)
 - `manifest.json.dist`
 - `docs/future-architecture.md`
+- `README.md`

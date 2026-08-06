@@ -1,9 +1,4 @@
 {
-  "capabilities": [
-    "routing",
-    "intent-classification",
-    "translate"
-  ],
   "models": [
     {
       "id": "qwen3:1.7b",

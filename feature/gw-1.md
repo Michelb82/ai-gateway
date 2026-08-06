@@ -20,7 +20,18 @@ Treat the queue as untrusted:
 - Always apply a character cap to system prompts
 - Keep capability schema validation unless the override is explicitly authorized
 
+## Status
+
+Implemented with **org allowlist** (default deny):
+
+- Manifest `config.system_prompt_override_orgs` — empty ⇒ no overrides
+- Manifest `config.max_system_prompt_chars` — default `4000` when omitted/`<= 0`
+- Unauthorized / missing `organisation_id` ⇒ request failed
+- Authorized overrides only ⇒ `ParseRawJSON`; otherwise always `ParseResult`
+
 ## Related code
 
 - `internal/capability/capability.go` (`BuildPrompts`, `ValidateInputBounds`)
-- `internal/worker/worker.go` (override → `ParseRawJSON`)
+- `internal/capability/override_policy.go`
+- `internal/worker/worker.go` (allowlist + cap → optional `ParseRawJSON`)
+- `internal/configmgmt` (`RuntimeConfig` / `Snapshot` policy fields)

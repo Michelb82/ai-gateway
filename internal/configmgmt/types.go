@@ -33,10 +33,12 @@ type Ingress struct {
 }
 
 type RuntimeConfig struct {
-	MessagePrefix       string `json:"message_prefix"`
-	HTTPAddress         string `json:"http_address"`
-	PriorityCountHigh   int    `json:"priority_count_high"`
-	PriorityCountMedium int    `json:"priority_count_medium"`
+	MessagePrefix            string   `json:"message_prefix"`
+	HTTPAddress              string   `json:"http_address"`
+	PriorityCountHigh        int      `json:"priority_count_high"`
+	PriorityCountMedium      int      `json:"priority_count_medium"`
+	MaxSystemPromptChars     int      `json:"max_system_prompt_chars,omitempty"`
+	SystemPromptOverrideOrgs []string `json:"system_prompt_override_orgs,omitempty"`
 }
 
 // ModelBinding is the resolved rank-0 binding for a capability.
@@ -49,14 +51,16 @@ type ModelBinding struct {
 
 // Snapshot is the resolved runtime configuration applied to the data plane.
 type Snapshot struct {
-	Fingerprint          string
-	RedisAddr            string
-	InputQueue           string
-	OutputQueue          string
-	BRPopTimeout         int
-	CloudEventTypePrefix string
-	HTTPAddr             string
-	PriorityHighCount    int
-	PriorityMediumCount  int
-	Bindings             map[string]ModelBinding
+	Fingerprint              string
+	RedisAddr                string
+	InputQueue               string
+	OutputQueue              string
+	BRPopTimeout             int
+	CloudEventTypePrefix     string
+	HTTPAddr                 string
+	PriorityHighCount        int
+	PriorityMediumCount      int
+	MaxSystemPromptChars     int
+	SystemPromptOverrideOrgs []string
+	Bindings                 map[string]ModelBinding
 }

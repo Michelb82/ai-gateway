@@ -107,6 +107,20 @@ func Validate(m Manifest) error {
 	if m.Config.PriorityCountMedium < 1 {
 		return fmt.Errorf("manifest.config.priority_count_medium must be >= 1")
 	}
+	if m.Config.MaxSystemPromptChars < 0 {
+		return fmt.Errorf("manifest.config.max_system_prompt_chars must be >= 0")
+	}
+	seenOrgs := make(map[string]struct{}, len(m.Config.SystemPromptOverrideOrgs))
+	for i, orgID := range m.Config.SystemPromptOverrideOrgs {
+		orgID = strings.TrimSpace(orgID)
+		if orgID == "" {
+			return fmt.Errorf("manifest.config.system_prompt_override_orgs[%d] must not be blank", i)
+		}
+		if _, dup := seenOrgs[orgID]; dup {
+			return fmt.Errorf("manifest.config.system_prompt_override_orgs duplicates %q", orgID)
+		}
+		seenOrgs[orgID] = struct{}{}
+	}
 
 	return nil
 }

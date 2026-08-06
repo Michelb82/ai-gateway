@@ -74,7 +74,7 @@ Copy `manifest.json.dist` to `manifest.json` for local/dev. Public defaults use 
 | `models` | Catalog entries with `id`, `url`, `model` (Ollama name), `keep_alive_seconds` |
 | `capability_models` | Bindings for each built-in capability (`routing`, `intent-classification`, `translate`): ranked list of model `id`s (rank `0` is used today; higher ranks are reserved for failover). Optional `max_input_chars` on rank `0` (defaults: routing `200`, intent-classification `8000`, translate `16000`). Unknown capability keys are rejected. |
 | `ingress` | Redis adapter, address, ingress/egress channels, BRPOP timeout |
-| `config` | CloudEvent `message_prefix`, `http_address`, priority fairness counts |
+| `config` | CloudEvent `message_prefix`, `http_address`, priority fairness counts, optional `max_system_prompt_chars` (default `4000`), optional `system_prompt_override_orgs` (default empty / deny all) |
 
 Example (trimmed):
 
@@ -105,7 +105,9 @@ Example (trimmed):
     "message_prefix": "com.mywebsite.ai",
     "http_address": ":80",
     "priority_count_high": 3,
-    "priority_count_medium": 3
+    "priority_count_medium": 3,
+    "max_system_prompt_chars": 4000,
+    "system_prompt_override_orgs": []
   }
 }
 ```
@@ -157,18 +159,24 @@ Request type: `{message_prefix}.request` (default `com.mywebsite.ai.request`)
 
 ### Custom system prompt (`messages.role = system`)
 
-Optional `data.input.system_prompt` becomes the Ollama chat message with `role: "system"`. When it is present, **it replaces the gateway’s built-in system prompt** for that capability (`routing`, `intent-classification`, or `translate`). That changes how the AI agent behaves: instructions, allowed output fields, and language are whatever the caller supplies.
+Optional `data.input.system_prompt` is **denied by default**. It is accepted only when:
 
-Effects when `system_prompt` is set:
+1. The CloudEvent `organisation_id` is listed in manifest `config.system_prompt_override_orgs`, and
+2. The override length is within `config.max_system_prompt_chars` (default `4000` runes).
+
+Unauthorized or oversized overrides fail the request (`{prefix}.request.failed`). Empty allowlist means no organisation may override.
+
+When an override is authorized:
 
 1. The built-in gateway system prompts are **not** used.
 2. The value is sent to the LLM as `messages[]` with `role: "system"` (alongside the user message/text as `role: "user"`).
 3. Result parsing is relaxed: the model’s JSON object is returned as `data.result` **as-is**, without enforcing the default capability result shapes above. Callers that override the system prompt own the response schema.
 
-Example (organisation-specific routing):
+Example (organisation `7` must be in `system_prompt_override_orgs`):
 
 ```json
 {
+  "organisation_id": "7",
   "data": {
     "capability": "routing",
     "input": {

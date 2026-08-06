@@ -20,13 +20,21 @@ func testRegistry() *capability.Registry {
 	)
 }
 
+func testOverridePolicy(orgs []string, maxChars int) *capability.OverridePolicyHolder {
+	h := capability.NewOverridePolicyHolder()
+	h.Store(capability.PolicyFromOrgs(orgs, maxChars))
+	return h
+}
+
+func strPtr(s string) *string { return &s }
+
 func TestHandleIntentSuccess(t *testing.T) {
 	request := mustEvent(t, "request_intent.json")
 	publisher := &fakePublisher{}
 	ollama := &fakeOllama{result: `{"intent":"wall-painting","confidence":0.95}`}
 	models := &fakeModels{available: true}
 
-	w := New(nil, publisher, ollama, models, testRegistry(), nil)
+	w := New(nil, publisher, ollama, models, testRegistry(), nil, nil)
 	if err := w.handle(context.Background(), request); err != nil {
 		t.Fatalf("handle() error = %v", err)
 	}
@@ -59,7 +67,7 @@ func TestHandleRoutingSuccess(t *testing.T) {
 	ollama := &fakeOllama{result: `{"capability":"intent-classification"}`}
 	models := &fakeModels{available: true}
 
-	w := New(nil, publisher, ollama, models, testRegistry(), nil)
+	w := New(nil, publisher, ollama, models, testRegistry(), nil, nil)
 	if err := w.handle(context.Background(), request); err != nil {
 		t.Fatalf("handle() error = %v", err)
 	}
@@ -73,9 +81,10 @@ func TestHandleRoutingSuccess(t *testing.T) {
 func TestHandleRoutingWithSystemPromptOverride(t *testing.T) {
 	customPrompt := "Custom org routing prompt"
 	event := &cloudevent.Event{
-		Type:   cloudevent.EventTypeRequest,
-		Source: "/intent/routing",
-		ID:     "routing-override-1",
+		Type:           cloudevent.EventTypeRequest,
+		Source:         "/intent/routing",
+		ID:             "routing-override-1",
+		OrganisationID: strPtr("7"),
 		Data: map[string]any{
 			"capability": "routing",
 			"input": map[string]any{
@@ -88,7 +97,7 @@ func TestHandleRoutingWithSystemPromptOverride(t *testing.T) {
 	ollama := &fakeOllama{result: `{"jobs":[{"job_id":1,"confidence":0.9}],"route":"wizard","summary":"wall painting"}`}
 	models := &fakeModels{available: true}
 
-	w := New(nil, publisher, ollama, models, testRegistry(), nil)
+	w := New(nil, publisher, ollama, models, testRegistry(), testOverridePolicy([]string{"7"}, 4000), nil)
 	if err := w.handle(context.Background(), event); err != nil {
 		t.Fatalf("handle() error = %v", err)
 	}
@@ -105,13 +114,201 @@ func TestHandleRoutingWithSystemPromptOverride(t *testing.T) {
 	}
 }
 
+func TestHandleRejectsSystemPromptWithoutAllowlist(t *testing.T) {
+	event := &cloudevent.Event{
+		Type:           cloudevent.EventTypeRequest,
+		Source:         "/intent/routing",
+		ID:             "routing-override-denied",
+		OrganisationID: strPtr("7"),
+		Data: map[string]any{
+			"capability": "routing",
+			"input": map[string]any{
+				"message":       `{"customer_request":"muren verven"}`,
+				"system_prompt": "Custom org routing prompt",
+			},
+		},
+	}
+	publisher := &fakePublisher{}
+	ollama := &fakeOllama{result: `{"capability":"intent-classification"}`}
+	w := New(nil, publisher, ollama, &fakeModels{available: true}, testRegistry(), testOverridePolicy(nil, 4000), nil)
+	if err := w.handle(context.Background(), event); err != nil {
+		t.Fatalf("handle() error = %v", err)
+	}
+	if publisher.events[0].Type != cloudevent.EventTypeRequestFailed {
+		t.Fatalf("Type = %q", publisher.events[0].Type)
+	}
+	if ollama.called {
+		t.Fatalf("Complete should not be called when system_prompt is not allowed")
+	}
+	if got := publisher.events[0].Data["error"]; got != "data.input.system_prompt is not allowed for this organisation" {
+		t.Fatalf("error = %v", got)
+	}
+}
+
+func TestHandleRejectsSystemPromptWithoutOrganisation(t *testing.T) {
+	event := &cloudevent.Event{
+		Type:   cloudevent.EventTypeRequest,
+		Source: "/intent/routing",
+		ID:     "routing-override-no-org",
+		Data: map[string]any{
+			"capability": "routing",
+			"input": map[string]any{
+				"message":       `{"customer_request":"muren verven"}`,
+				"system_prompt": "Custom org routing prompt",
+			},
+		},
+	}
+	publisher := &fakePublisher{}
+	ollama := &fakeOllama{result: `{"capability":"intent-classification"}`}
+	w := New(nil, publisher, ollama, &fakeModels{available: true}, testRegistry(), testOverridePolicy([]string{"7"}, 4000), nil)
+	if err := w.handle(context.Background(), event); err != nil {
+		t.Fatalf("handle() error = %v", err)
+	}
+	if publisher.events[0].Type != cloudevent.EventTypeRequestFailed {
+		t.Fatalf("Type = %q", publisher.events[0].Type)
+	}
+	if ollama.called {
+		t.Fatalf("Complete should not be called when organisation_id is missing")
+	}
+}
+
+func TestHandleRejectsOversizedSystemPrompt(t *testing.T) {
+	event := &cloudevent.Event{
+		Type:           cloudevent.EventTypeRequest,
+		Source:         "/intent/routing",
+		ID:             "routing-override-bounds",
+		OrganisationID: strPtr("7"),
+		Data: map[string]any{
+			"capability": "routing",
+			"input": map[string]any{
+				"message":       `{"customer_request":"muren verven"}`,
+				"system_prompt": strings.Repeat("x", 11),
+			},
+		},
+	}
+	publisher := &fakePublisher{}
+	ollama := &fakeOllama{result: `{"capability":"intent-classification"}`}
+	w := New(nil, publisher, ollama, &fakeModels{available: true}, testRegistry(), testOverridePolicy([]string{"7"}, 10), nil)
+	if err := w.handle(context.Background(), event); err != nil {
+		t.Fatalf("handle() error = %v", err)
+	}
+	response := publisher.events[0]
+	if response.Type != cloudevent.EventTypeRequestFailed {
+		t.Fatalf("Type = %q", response.Type)
+	}
+	if ollama.called {
+		t.Fatalf("Complete should not be called when system_prompt exceeds character limit")
+	}
+	errField, ok := response.Data["error"].(map[string]any)
+	if !ok {
+		t.Fatalf("error = %T, want map", response.Data["error"])
+	}
+	if errField["reason"] != "Prompt is outside bounds" {
+		t.Fatalf("reason = %v", errField["reason"])
+	}
+	if errField["max_characters"] != "10" {
+		t.Fatalf("max_characters = %v", errField["max_characters"])
+	}
+}
+
+func TestHandleRejectsSystemPromptForNonAllowlistedOrg(t *testing.T) {
+	event := &cloudevent.Event{
+		Type:           cloudevent.EventTypeRequest,
+		Source:         "/intent/routing",
+		ID:             "routing-override-wrong-org",
+		OrganisationID: strPtr("99"),
+		Data: map[string]any{
+			"capability": "routing",
+			"input": map[string]any{
+				"message":       `{"customer_request":"muren verven"}`,
+				"system_prompt": "Custom org routing prompt",
+			},
+		},
+	}
+	publisher := &fakePublisher{}
+	ollama := &fakeOllama{result: `{"capability":"intent-classification"}`}
+	w := New(nil, publisher, ollama, &fakeModels{available: true}, testRegistry(), testOverridePolicy([]string{"7"}, 4000), nil)
+	if err := w.handle(context.Background(), event); err != nil {
+		t.Fatalf("handle() error = %v", err)
+	}
+	if publisher.events[0].Type != cloudevent.EventTypeRequestFailed {
+		t.Fatalf("Type = %q", publisher.events[0].Type)
+	}
+	if ollama.called {
+		t.Fatalf("Complete should not be called for non-allowlisted organisation")
+	}
+}
+
+func TestHandleAllowsSystemPromptAtExactCharLimit(t *testing.T) {
+	customPrompt := strings.Repeat("é", 10)
+	event := &cloudevent.Event{
+		Type:           cloudevent.EventTypeRequest,
+		Source:         "/intent/routing",
+		ID:             "routing-override-exact-bounds",
+		OrganisationID: strPtr("7"),
+		Data: map[string]any{
+			"capability": "routing",
+			"input": map[string]any{
+				"message":       `{"customer_request":"muren verven"}`,
+				"system_prompt": customPrompt,
+			},
+		},
+	}
+	publisher := &fakePublisher{}
+	ollama := &fakeOllama{result: `{"jobs":[{"job_id":1}],"route":"wizard"}`}
+	w := New(nil, publisher, ollama, &fakeModels{available: true}, testRegistry(), testOverridePolicy([]string{"7"}, 10), nil)
+	if err := w.handle(context.Background(), event); err != nil {
+		t.Fatalf("handle() error = %v", err)
+	}
+	if publisher.events[0].Type != cloudevent.EventTypeRequestCompleted {
+		t.Fatalf("Type = %q, want completed", publisher.events[0].Type)
+	}
+	if ollama.systemPrompt != customPrompt {
+		t.Fatalf("systemPrompt = %q, want exact-limit override", ollama.systemPrompt)
+	}
+}
+
+func TestHandleAllowlistedOrgWithoutSystemPromptUsesCapabilitySchema(t *testing.T) {
+	event := &cloudevent.Event{
+		Type:           cloudevent.EventTypeRequest,
+		Source:         "/intent/routing",
+		ID:             "routing-no-override",
+		OrganisationID: strPtr("7"),
+		Data: map[string]any{
+			"capability": "routing",
+			"input": map[string]any{
+				"message": `{"customer_request":"muren verven"}`,
+			},
+		},
+	}
+	publisher := &fakePublisher{}
+	ollama := &fakeOllama{result: `{"capability":"intent-classification","extra":"ignored"}`}
+	w := New(nil, publisher, ollama, &fakeModels{available: true}, testRegistry(), testOverridePolicy([]string{"7"}, 4000), nil)
+	if err := w.handle(context.Background(), event); err != nil {
+		t.Fatalf("handle() error = %v", err)
+	}
+	if publisher.events[0].Type != cloudevent.EventTypeRequestCompleted {
+		t.Fatalf("Type = %q", publisher.events[0].Type)
+	}
+	if !strings.Contains(ollama.systemPrompt, "routing model") {
+		t.Fatalf("expected builtin routing system prompt, got %q", ollama.systemPrompt)
+	}
+	result := publisher.events[0].Data["result"].(map[string]any)
+	if result["capability"] != "intent-classification" {
+		t.Fatalf("result = %v", result)
+	}
+	if _, ok := result["extra"]; ok {
+		t.Fatalf("capability schema should drop extra fields, got %v", result)
+	}
+}
+
 func TestHandleTranslateSuccess(t *testing.T) {
 	request := mustEvent(t, "request_translate.json")
 	publisher := &fakePublisher{}
 	ollama := &fakeOllama{result: `{"text":"Electrical installations for homes"}`}
 	models := &fakeModels{available: true}
 
-	w := New(nil, publisher, ollama, models, testRegistry(), nil)
+	w := New(nil, publisher, ollama, models, testRegistry(), nil, nil)
 	if err := w.handle(context.Background(), request); err != nil {
 		t.Fatalf("handle() error = %v", err)
 	}
@@ -137,7 +334,7 @@ func TestHandleModelUnavailable(t *testing.T) {
 	ollama := &fakeOllama{result: `{"intent":"x","confidence":1}`}
 	models := &fakeModels{available: false}
 
-	w := New(nil, publisher, ollama, models, testRegistry(), nil)
+	w := New(nil, publisher, ollama, models, testRegistry(), nil, nil)
 	if err := w.handle(context.Background(), request); err != nil {
 		t.Fatalf("handle() error = %v", err)
 	}
@@ -162,7 +359,7 @@ func TestHandleUnknownCapability(t *testing.T) {
 		},
 	}
 	publisher := &fakePublisher{}
-	w := New(nil, publisher, &fakeOllama{}, &fakeModels{available: true}, testRegistry(), nil)
+	w := New(nil, publisher, &fakeOllama{}, &fakeModels{available: true}, testRegistry(), nil, nil)
 	_ = w.handle(context.Background(), event)
 	if publisher.events[0].Type != cloudevent.EventTypeRequestFailed {
 		t.Fatalf("Type = %q", publisher.events[0].Type)
@@ -181,7 +378,7 @@ func TestHandleRejectsCallerModel(t *testing.T) {
 		},
 	}
 	publisher := &fakePublisher{}
-	w := New(nil, publisher, &fakeOllama{}, &fakeModels{available: true}, testRegistry(), nil)
+	w := New(nil, publisher, &fakeOllama{}, &fakeModels{available: true}, testRegistry(), nil, nil)
 	_ = w.handle(context.Background(), event)
 	if publisher.events[0].Type != cloudevent.EventTypeRequestFailed {
 		t.Fatalf("Type = %q", publisher.events[0].Type)
@@ -192,7 +389,7 @@ func TestHandleOllamaError(t *testing.T) {
 	request := mustEvent(t, "request_intent.json")
 	publisher := &fakePublisher{}
 	ollama := &fakeOllama{err: errors.New("boom")}
-	w := New(nil, publisher, ollama, &fakeModels{available: true}, testRegistry(), nil)
+	w := New(nil, publisher, ollama, &fakeModels{available: true}, testRegistry(), nil, nil)
 	_ = w.handle(context.Background(), request)
 	if publisher.events[0].Data["error"] != "boom" {
 		t.Fatalf("error = %v", publisher.events[0].Data["error"])
@@ -214,7 +411,7 @@ func TestHandleInputExceedsCharacterLimit(t *testing.T) {
 	}
 	publisher := &fakePublisher{}
 	ollama := &fakeOllama{result: `{"capability":"intent-classification"}`}
-	w := New(nil, publisher, ollama, &fakeModels{available: true}, testRegistry(), nil)
+	w := New(nil, publisher, ollama, &fakeModels{available: true}, testRegistry(), nil, nil)
 	if err := w.handle(context.Background(), event); err != nil {
 		t.Fatalf("handle() error = %v", err)
 	}
@@ -246,7 +443,7 @@ func TestHandleUnparseableOutput(t *testing.T) {
 	request := mustEvent(t, "request_intent.json")
 	publisher := &fakePublisher{}
 	ollama := &fakeOllama{result: "not-json"}
-	w := New(nil, publisher, ollama, &fakeModels{available: true}, testRegistry(), nil)
+	w := New(nil, publisher, ollama, &fakeModels{available: true}, testRegistry(), nil, nil)
 	_ = w.handle(context.Background(), request)
 	if publisher.events[0].Type != cloudevent.EventTypeRequestFailed {
 		t.Fatalf("Type = %q", publisher.events[0].Type)

@@ -50,16 +50,32 @@ func Resolve(m Manifest) (Snapshot, error) {
 		}
 	}
 
+	maxSystemPromptChars := m.Config.MaxSystemPromptChars
+	if maxSystemPromptChars <= 0 {
+		maxSystemPromptChars = capability.DefaultMaxSystemPromptChars
+	}
+	overrideOrgs := make([]string, 0, len(m.Config.SystemPromptOverrideOrgs))
+	for _, orgID := range m.Config.SystemPromptOverrideOrgs {
+		orgID = strings.TrimSpace(orgID)
+		if orgID == "" {
+			continue
+		}
+		overrideOrgs = append(overrideOrgs, orgID)
+	}
+	sort.Strings(overrideOrgs)
+
 	snap := Snapshot{
-		RedisAddr:            strings.TrimSpace(m.Ingress.Address),
-		InputQueue:           strings.TrimSpace(m.Ingress.IngressChannel),
-		OutputQueue:          strings.TrimSpace(m.Ingress.EgressChannel),
-		BRPopTimeout:         m.Ingress.BRPopTimeoutSeconds,
-		CloudEventTypePrefix: strings.TrimSpace(m.Config.MessagePrefix),
-		HTTPAddr:             strings.TrimSpace(m.Config.HTTPAddress),
-		PriorityHighCount:    m.Config.PriorityCountHigh,
-		PriorityMediumCount:  m.Config.PriorityCountMedium,
-		Bindings:             bindings,
+		RedisAddr:                strings.TrimSpace(m.Ingress.Address),
+		InputQueue:               strings.TrimSpace(m.Ingress.IngressChannel),
+		OutputQueue:              strings.TrimSpace(m.Ingress.EgressChannel),
+		BRPopTimeout:             m.Ingress.BRPopTimeoutSeconds,
+		CloudEventTypePrefix:     strings.TrimSpace(m.Config.MessagePrefix),
+		HTTPAddr:                 strings.TrimSpace(m.Config.HTTPAddress),
+		PriorityHighCount:        m.Config.PriorityCountHigh,
+		PriorityMediumCount:      m.Config.PriorityCountMedium,
+		MaxSystemPromptChars:     maxSystemPromptChars,
+		SystemPromptOverrideOrgs: overrideOrgs,
+		Bindings:                 bindings,
 	}
 	snap.Fingerprint = fingerprint(snap)
 	return snap, nil
@@ -75,6 +91,8 @@ func fingerprint(s Snapshot) string {
 		s.HTTPAddr,
 		fmt.Sprintf("%d", s.PriorityHighCount),
 		fmt.Sprintf("%d", s.PriorityMediumCount),
+		fmt.Sprintf("%d", s.MaxSystemPromptChars),
+		strings.Join(s.SystemPromptOverrideOrgs, ","),
 	}
 	keys := make([]string, 0, len(s.Bindings))
 	for k := range s.Bindings {

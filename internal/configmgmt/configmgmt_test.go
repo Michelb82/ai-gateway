@@ -242,6 +242,80 @@ func TestFingerprintChangesWhenBindingChanges(t *testing.T) {
 	}
 }
 
+func TestResolveSystemPromptPolicyDefaults(t *testing.T) {
+	m := validManifest()
+	snap, err := configmgmt.Resolve(m)
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if snap.MaxSystemPromptChars != 4000 {
+		t.Fatalf("MaxSystemPromptChars = %d, want 4000", snap.MaxSystemPromptChars)
+	}
+	if len(snap.SystemPromptOverrideOrgs) != 0 {
+		t.Fatalf("SystemPromptOverrideOrgs = %v, want empty", snap.SystemPromptOverrideOrgs)
+	}
+}
+
+func TestResolveSystemPromptPolicy(t *testing.T) {
+	m := validManifest()
+	m.Config.MaxSystemPromptChars = 1200
+	m.Config.SystemPromptOverrideOrgs = []string{" 42 ", "7"}
+	snap, err := configmgmt.Resolve(m)
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if snap.MaxSystemPromptChars != 1200 {
+		t.Fatalf("MaxSystemPromptChars = %d", snap.MaxSystemPromptChars)
+	}
+	if len(snap.SystemPromptOverrideOrgs) != 2 ||
+		snap.SystemPromptOverrideOrgs[0] != "42" ||
+		snap.SystemPromptOverrideOrgs[1] != "7" {
+		t.Fatalf("SystemPromptOverrideOrgs = %v", snap.SystemPromptOverrideOrgs)
+	}
+}
+
+func TestFingerprintChangesWhenSystemPromptPolicyChanges(t *testing.T) {
+	m := validManifest()
+	a, err := configmgmt.Resolve(m)
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	m.Config.SystemPromptOverrideOrgs = []string{"7"}
+	b, err := configmgmt.Resolve(m)
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if a.Fingerprint == b.Fingerprint {
+		t.Fatalf("expected fingerprints to differ when allowlist changes")
+	}
+	m.Config.MaxSystemPromptChars = 100
+	c, err := configmgmt.Resolve(m)
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if b.Fingerprint == c.Fingerprint {
+		t.Fatalf("expected fingerprints to differ when max chars change")
+	}
+}
+
+func TestLoadDistManifestSystemPromptPolicy(t *testing.T) {
+	path := filepath.Join("..", "..", "manifest.json.dist")
+	m, err := configmgmt.LoadFile(path)
+	if err != nil {
+		t.Fatalf("LoadFile(manifest.json.dist) error = %v", err)
+	}
+	snap, err := configmgmt.Resolve(m)
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if snap.MaxSystemPromptChars != 4000 {
+		t.Fatalf("MaxSystemPromptChars = %d", snap.MaxSystemPromptChars)
+	}
+	if len(snap.SystemPromptOverrideOrgs) != 0 {
+		t.Fatalf("SystemPromptOverrideOrgs = %v, want empty", snap.SystemPromptOverrideOrgs)
+	}
+}
+
 func TestValidateErrors(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -441,6 +515,27 @@ func TestValidateErrors(t *testing.T) {
 				m.Config.PriorityCountMedium = 0
 			},
 			substr: "priority_count_medium",
+		},
+		{
+			name: "negative max_system_prompt_chars",
+			mutate: func(m *configmgmt.Manifest) {
+				m.Config.MaxSystemPromptChars = -1
+			},
+			substr: "max_system_prompt_chars",
+		},
+		{
+			name: "blank system_prompt_override_orgs entry",
+			mutate: func(m *configmgmt.Manifest) {
+				m.Config.SystemPromptOverrideOrgs = []string{"7", " "}
+			},
+			substr: "system_prompt_override_orgs",
+		},
+		{
+			name: "duplicate system_prompt_override_orgs",
+			mutate: func(m *configmgmt.Manifest) {
+				m.Config.SystemPromptOverrideOrgs = []string{"7", "7"}
+			},
+			substr: "duplicates",
 		},
 	}
 

@@ -2,6 +2,19 @@
 
 Instructions for AI agents working in this repository (Cursor and similar tools).
 
+## Tests before commit
+
+Before **every** commit that changes code (Go sources, manifests used by tests, build/test wiring):
+
+1. **Run the unit test suite** and wait for it to finish:
+   - Prefer `make test-docker` (no local Go required), or `make test` if Go is available.
+2. **All tests must pass** before creating the commit.
+3. **On failure:** do **not** commit. Fix the failing tests (or the code under test), re-run the suite, and only commit once green.
+4. Never use `--no-verify` or otherwise skip hooks/tests to land a red suite.
+5. Docs-only commits that touch no executable code may skip the suite; if unsure, run the tests.
+
+Failed tests block the next commit until they are fixed.
+
 ## Feature tracking (`feature/gw-*.md`)
 
 On **every feature request** (new capability, enhancement, refactor with user-visible/architectural impact, or hardening follow-up):
@@ -41,6 +54,7 @@ If the work implements an existing `feature/gw-*.md`, update that file’s statu
 
 Before committing feature work, verify:
 
+- [ ] Unit tests were run and passed (`make test-docker` or `make test`)
 - [ ] `feature/gw-<N>.md` exists (new or intentionally updated)
 - [ ] It is staged with the feature changes
 - [ ] The commit message reflects the feature; the gw file rides along in that commit

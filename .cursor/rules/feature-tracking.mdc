@@ -1,11 +1,21 @@
 ---
-description: Require feature/gw-*.md for every feature and include it in commits
+description: Feature gw docs, tests must pass before commit
 alwaysApply: true
 ---
 
-# Feature tracking
+# Agent workflow
 
 Follow [AGENTS.md](AGENTS.md) for this repository.
+
+## Tests before commit
+
+Before every code commit:
+
+1. Run `make test-docker` (or `make test`).
+2. Commit only when the suite is green.
+3. On failure: fix tests/code first, re-run, then commit. Never commit a red suite.
+
+## Feature tracking
 
 On every feature request:
 

@@ -106,6 +106,68 @@ func TestConsumeMissingPriorityDefaultsToLow(t *testing.T) {
 	}
 }
 
+func TestConsumeSkipsMalformedInputPayload(t *testing.T) {
+	mr, client := newTestRedis(t)
+	defer mr.Close()
+
+	mr.Lpush("queue:ai.requests", `not-json`)
+	pushRequest(t, mr, "ok-1", "LOW")
+
+	q := newQueue(client)
+	event, err := q.Consume(context.Background())
+	if err != nil {
+		t.Fatalf("Consume() error = %v", err)
+	}
+	if event == nil {
+		t.Fatal("Consume() returned nil, want ok-1")
+	}
+	if event.ID != "ok-1" {
+		t.Fatalf("event.ID = %q, want ok-1", event.ID)
+	}
+}
+
+func TestConsumeSkipsMalformedLanePayload(t *testing.T) {
+	mr, client := newTestRedis(t)
+	defer mr.Close()
+
+	// Pre-seed a poisoned lane entry (as if a prior route left bad data).
+	mr.Lpush("queue:ai.requests:low", `{bad`)
+	pushRequest(t, mr, "ok-2", "LOW")
+
+	q := newQueue(client)
+	event, err := q.Consume(context.Background())
+	if err != nil {
+		t.Fatalf("Consume() error = %v", err)
+	}
+	if event == nil {
+		t.Fatal("Consume() returned nil, want ok-2")
+	}
+	if event.ID != "ok-2" {
+		t.Fatalf("event.ID = %q, want ok-2", event.ID)
+	}
+}
+
+func TestConsumeSkipsStructurallyInvalidInputPayload(t *testing.T) {
+	mr, client := newTestRedis(t)
+	defer mr.Close()
+
+	// Valid JSON object but missing required CloudEvent fields.
+	mr.Lpush("queue:ai.requests", `{}`)
+	pushRequest(t, mr, "ok-3", "HIGH")
+
+	q := newQueue(client)
+	event, err := q.Consume(context.Background())
+	if err != nil {
+		t.Fatalf("Consume() error = %v", err)
+	}
+	if event == nil {
+		t.Fatal("Consume() returned nil, want ok-3")
+	}
+	if event.ID != "ok-3" {
+		t.Fatalf("event.ID = %q, want ok-3", event.ID)
+	}
+}
+
 func TestConsumeFairnessHighMediumLow(t *testing.T) {
 	mr, client := newTestRedis(t)
 	defer mr.Close()

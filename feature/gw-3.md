@@ -15,13 +15,23 @@ Two related failure modes:
 
 ## Shorthand solution
 
-- Skip or dead-letter malformed queue messages instead of killing the worker
-- Auto-recover / restart the worker on unexpected exit
-- Make apply transactional: prepare → verify models → atomic swap, or roll back registry/Redis on failure
+- Skip malformed queue messages (log + continue); dead-letter queue deferred to a follow-up
+- Auto-recover / restart the worker on unexpected exit via `worker.Supervise`
+- Make apply transactional: prepare (new Redis ping) → `EnsureModels` → atomic swap (`ConfigureTypes` / registry / Redis / supervised worker); on EnsureModels failure close unused client and leave live plane untouched
+
+## Status
+
+Implemented: poison skip, supervised restart (including panic recovery), prepare-then-swap Apply
+(EnsureModels before live mutation; stop old worker before registry/types/Redis swap).
+
+Git pre-commit hook (`.githooks/pre-commit`, install via `make install-hooks`) runs `make test-docker`.
 
 ## Related code
 
-- `internal/queue/redis.go` (parse errors returned to `Consume`)
-- `internal/worker/worker.go` (`Run` exits on consume error)
-- `cmd/gateway/main.go` (`dataPlane.Apply` order: registry/Redis before `EnsureModels`)
+- `internal/queue/redis.go` (parse errors soft-skipped in `routePayload` / `popLane`)
+- `internal/worker/supervise.go` (`Supervise` restart loop with panic recovery)
+- `internal/worker/worker.go` (`Run` exits on consume error; supervisor recovers)
+- `cmd/gateway/main.go` (`dataPlane.Apply`: EnsureModels before live swap; stop before Store)
+- `cmd/gateway/dataplane_test.go` (EnsureModels failure leaves live plane untouched)
 - `internal/configmgmt/manager.go` (keeps previous snapshot when `onApply` fails)
+- `.githooks/pre-commit` (runs unit tests before commit)

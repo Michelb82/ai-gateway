@@ -45,6 +45,15 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.PriorityMediumCount != 3 {
 		t.Fatalf("PriorityMediumCount = %d, want 3", cfg.PriorityMediumCount)
 	}
+	if cfg.LLMMaxCharsRouting != 200 {
+		t.Fatalf("LLMMaxCharsRouting = %d, want 200", cfg.LLMMaxCharsRouting)
+	}
+	if cfg.LLMMaxCharsIntent != 8000 {
+		t.Fatalf("LLMMaxCharsIntent = %d, want 8000", cfg.LLMMaxCharsIntent)
+	}
+	if cfg.LLMMaxCharsTranslate != 16000 {
+		t.Fatalf("LLMMaxCharsTranslate = %d, want 16000", cfg.LLMMaxCharsTranslate)
+	}
 }
 
 func TestLoadOverrides(t *testing.T) {
@@ -65,6 +74,9 @@ func TestLoadOverrides(t *testing.T) {
 	t.Setenv("BRPOP_TIMEOUT", "10")
 	t.Setenv("PRIORITY_HIGH_COUNT", "5")
 	t.Setenv("PRIORITY_MEDIUM_COUNT", "4")
+	t.Setenv("LLM_MAX_CHARS_ROUTING", "150")
+	t.Setenv("LLM_MAX_CHARS_INTENT", "5000")
+	t.Setenv("LLM_MAX_CHARS_TRANSLATE", "12000")
 	t.Setenv("DEBUG", "true")
 
 	cfg, err := config.Load()
@@ -89,6 +101,15 @@ func TestLoadOverrides(t *testing.T) {
 	}
 	if cfg.PriorityHighCount != 5 {
 		t.Fatalf("PriorityHighCount = %d, want 5", cfg.PriorityHighCount)
+	}
+	if cfg.LLMMaxCharsRouting != 150 {
+		t.Fatalf("LLMMaxCharsRouting = %d, want 150", cfg.LLMMaxCharsRouting)
+	}
+	if cfg.LLMMaxCharsIntent != 5000 {
+		t.Fatalf("LLMMaxCharsIntent = %d, want 5000", cfg.LLMMaxCharsIntent)
+	}
+	if cfg.LLMMaxCharsTranslate != 12000 {
+		t.Fatalf("LLMMaxCharsTranslate = %d, want 12000", cfg.LLMMaxCharsTranslate)
 	}
 }
 
@@ -146,6 +167,7 @@ func clearLLMEnv(t *testing.T) {
 		"LLM_MODEL_ROUTING_TTL", "LLM_MODEL_INTENT_TTL", "LLM_MODEL_TRANSLATE_TTL",
 		"CLOUDEVENT_TYPE_PREFIX", "HTTP_ADDR", "BRPOP_TIMEOUT",
 		"PRIORITY_HIGH_COUNT", "PRIORITY_MEDIUM_COUNT", "DEBUG",
+		"LLM_MAX_CHARS_ROUTING", "LLM_MAX_CHARS_INTENT", "LLM_MAX_CHARS_TRANSLATE",
 	}
 	for _, key := range keys {
 		t.Setenv(key, "")

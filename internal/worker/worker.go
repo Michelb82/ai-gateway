@@ -105,6 +105,10 @@ func (w *Worker) handle(ctx context.Context, event *cloudevent.Event) error {
 		return w.publishFailure(ctx, event, capabilityName, err)
 	}
 
+	if err := capability.ValidateInputBounds(def, input); err != nil {
+		return w.publishFailure(ctx, event, capabilityName, err)
+	}
+
 	available, err := w.models.ModelAvailable(ctx, def.BaseURL, def.Model)
 	if err != nil {
 		w.logger.Error("model availability check failed",
@@ -153,8 +157,14 @@ func (w *Worker) handle(ctx context.Context, event *cloudevent.Event) error {
 }
 
 func (w *Worker) publishFailure(ctx context.Context, event *cloudevent.Event, capabilityName string, cause error) error {
+	var errorField any
+	if boundsErr, ok := cause.(capability.PromptBoundsError); ok {
+		errorField = boundsErr.ToMap()
+	} else {
+		errorField = cause.Error()
+	}
 	data := map[string]any{
-		"error": cause.Error(),
+		"error": errorField,
 	}
 	if strings.TrimSpace(capabilityName) != "" {
 		data["capability"] = capabilityName

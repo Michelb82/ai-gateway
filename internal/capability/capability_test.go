@@ -9,9 +9,9 @@ import (
 
 func testRegistry() *capability.Registry {
 	return capability.NewRegistry(
-		capability.ModelBinding{BaseURL: "http://llm-model:11434", Model: "qwen3:1.7b-q4_K_M", KeepAlive: "5m"},
-		capability.ModelBinding{BaseURL: "http://llm-model:11434", Model: "qwen3:4b-q4_K_M", KeepAlive: "5m"},
-		capability.ModelBinding{BaseURL: "http://llm-model:11434", Model: "qwen3:14b-q4_K_M", KeepAlive: "2m"},
+		capability.ModelBinding{BaseURL: "http://llm-model:11434", Model: "qwen3:1.7b-q4_K_M", KeepAlive: "5m", MaxInputChars: 200},
+		capability.ModelBinding{BaseURL: "http://llm-model:11434", Model: "qwen3:4b-q4_K_M", KeepAlive: "5m", MaxInputChars: 8000},
+		capability.ModelBinding{BaseURL: "http://llm-model:11434", Model: "qwen3:14b-q4_K_M", KeepAlive: "2m", MaxInputChars: 16000},
 	)
 }
 
@@ -204,5 +204,75 @@ func TestParseMissingFields(t *testing.T) {
 	_, err = capability.ParseResult(capability.Translate, `{"text":""}`)
 	if err == nil {
 		t.Fatalf("expected error for empty text")
+	}
+}
+
+func TestValidateInputBoundsRouting(t *testing.T) {
+	def, err := testRegistry().Get(capability.Routing)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	def.MaxInputChars = 5
+
+	if err := capability.ValidateInputBounds(def, map[string]any{"message": "hello"}); err != nil {
+		t.Fatalf("under limit: error = %v", err)
+	}
+	if err := capability.ValidateInputBounds(def, map[string]any{"message": "12345"}); err != nil {
+		t.Fatalf("at limit: error = %v", err)
+	}
+	err = capability.ValidateInputBounds(def, map[string]any{"message": "123456"})
+	if err == nil {
+		t.Fatalf("expected error over limit")
+	}
+	boundsErr, ok := err.(capability.PromptBoundsError)
+	if !ok {
+		t.Fatalf("error type = %T, want PromptBoundsError", err)
+	}
+	if boundsErr.MaxCharacters != 5 {
+		t.Fatalf("MaxCharacters = %d, want 5", boundsErr.MaxCharacters)
+	}
+}
+
+func TestValidateInputBoundsTranslate(t *testing.T) {
+	def, err := testRegistry().Get(capability.Translate)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	def.MaxInputChars = 3
+
+	if err := capability.ValidateInputBounds(def, map[string]any{"text": "abc"}); err != nil {
+		t.Fatalf("at limit: error = %v", err)
+	}
+	if err := capability.ValidateInputBounds(def, map[string]any{"text": "abcd"}); err == nil {
+		t.Fatalf("expected error over limit")
+	}
+}
+
+func TestValidateInputBoundsCountsRunesNotBytes(t *testing.T) {
+	def, err := testRegistry().Get(capability.Routing)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	def.MaxInputChars = 2
+
+	// é is one rune but two bytes in UTF-8.
+	if err := capability.ValidateInputBounds(def, map[string]any{"message": "é"}); err != nil {
+		t.Fatalf("single rune: error = %v", err)
+	}
+	if err := capability.ValidateInputBounds(def, map[string]any{"message": "éé"}); err != nil {
+		t.Fatalf("two runes at limit: error = %v", err)
+	}
+	if err := capability.ValidateInputBounds(def, map[string]any{"message": "ééé"}); err == nil {
+		t.Fatalf("expected error over limit")
+	}
+}
+
+func TestPromptBoundsErrorToMap(t *testing.T) {
+	m := capability.PromptBoundsError{MaxCharacters: 200}.ToMap()
+	if m["reason"] != "Prompt is outside bounds" {
+		t.Fatalf("reason = %v", m["reason"])
+	}
+	if m["max_characters"] != "200" {
+		t.Fatalf("max_characters = %v", m["max_characters"])
 	}
 }

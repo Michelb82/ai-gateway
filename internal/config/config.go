@@ -20,6 +20,9 @@ type Config struct {
 	LLMModelRoutingTTL   string
 	LLMModelIntentTTL    string
 	LLMModelTranslateTTL string
+	LLMMaxCharsRouting   int
+	LLMMaxCharsIntent    int
+	LLMMaxCharsTranslate int
 	CloudEventTypePrefix string
 	HTTPAddr             string
 	BRPopTimeout         int
@@ -42,6 +45,9 @@ func Load() (Config, error) {
 		LLMModelRoutingTTL:   envOrDefault("LLM_MODEL_ROUTING_TTL", "5m"),
 		LLMModelIntentTTL:    envOrDefault("LLM_MODEL_INTENT_TTL", "5m"),
 		LLMModelTranslateTTL: envOrDefault("LLM_MODEL_TRANSLATE_TTL", "2m"),
+		LLMMaxCharsRouting:   200,
+		LLMMaxCharsIntent:    8000,
+		LLMMaxCharsTranslate: 16000,
 		CloudEventTypePrefix: envOrDefault("CLOUDEVENT_TYPE_PREFIX", "com.mywebsite.ai"),
 		HTTPAddr:             envOrDefault("HTTP_ADDR", ":80"),
 		BRPopTimeout:         5,
@@ -70,6 +76,24 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	cfg.PriorityMediumCount = mediumCount
+
+	maxCharsRouting, err := envPositiveInt("LLM_MAX_CHARS_ROUTING", cfg.LLMMaxCharsRouting)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.LLMMaxCharsRouting = maxCharsRouting
+
+	maxCharsIntent, err := envPositiveInt("LLM_MAX_CHARS_INTENT", cfg.LLMMaxCharsIntent)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.LLMMaxCharsIntent = maxCharsIntent
+
+	maxCharsTranslate, err := envPositiveInt("LLM_MAX_CHARS_TRANSLATE", cfg.LLMMaxCharsTranslate)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.LLMMaxCharsTranslate = maxCharsTranslate
 
 	required := []struct {
 		name  string

@@ -11,7 +11,7 @@ test-docker:
 	docker run --rm -v $(PWD):/app -w /app golang:1.23-alpine sh -c "go mod download && go test ./... -count=1"
 
 test-integration:
-	docker run --rm --network construction_dev \
+	docker run --rm --network dev \
 		-e REDIS_ADDR=redis:6379 \
 		-v $(PWD):/app -w /app golang:1.23-alpine \
 		sh -c "go mod download && go test ./internal/queue/ -tags=integration -count=1 -v"

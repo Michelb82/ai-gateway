@@ -15,6 +15,159 @@ func testRegistry() *capability.Registry {
 	)
 }
 
+func TestKnownAndDefaults(t *testing.T) {
+	known := capability.Known()
+	if len(known) != 3 {
+		t.Fatalf("Known() len = %d", len(known))
+	}
+	if known[0] != capability.Routing ||
+		known[1] != capability.IntentClassification ||
+		known[2] != capability.Translate {
+		t.Fatalf("Known() = %v", known)
+	}
+	if !capability.IsKnown(capability.Routing) ||
+		capability.IsKnown("  translate  ") ||
+		capability.IsKnown("summarize") ||
+		capability.IsKnown("") {
+		t.Fatalf("IsKnown mismatch")
+	}
+	if capability.DefaultMaxInputChars(capability.Routing) != 200 ||
+		capability.DefaultMaxInputChars(capability.IntentClassification) != 8000 ||
+		capability.DefaultMaxInputChars(capability.Translate) != 16000 ||
+		capability.DefaultMaxInputChars("unknown") != 0 {
+		t.Fatalf("DefaultMaxInputChars mismatch")
+	}
+}
+
+func TestRegistryFromBindingsNil(t *testing.T) {
+	_, err := capability.NewRegistryFromBindings(nil)
+	if err == nil || !strings.Contains(err.Error(), "nil") {
+		t.Fatalf("error = %v, want nil bindings", err)
+	}
+}
+
+func TestRegistryFromBindingsTrimsURL(t *testing.T) {
+	reg, err := capability.NewRegistryFromBindings(map[string]capability.ModelBinding{
+		capability.Routing:              {BaseURL: "http://llm/", Model: "a", KeepAlive: "1m", MaxInputChars: 1},
+		capability.IntentClassification: {BaseURL: "http://llm/", Model: "b", KeepAlive: "1m", MaxInputChars: 2},
+		capability.Translate:            {BaseURL: "http://llm/", Model: "c", KeepAlive: "1m", MaxInputChars: 3},
+	})
+	if err != nil {
+		t.Fatalf("NewRegistryFromBindings() error = %v", err)
+	}
+	def, err := reg.Get(capability.Routing)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if def.BaseURL != "http://llm" {
+		t.Fatalf("BaseURL = %q", def.BaseURL)
+	}
+}
+
+func TestRegistryGetRequiresURLAndModel(t *testing.T) {
+	reg, err := capability.NewRegistryFromBindings(map[string]capability.ModelBinding{
+		capability.Routing:              {BaseURL: "", Model: "a", KeepAlive: "1m"},
+		capability.IntentClassification: {BaseURL: "http://llm", Model: "", KeepAlive: "1m"},
+		capability.Translate:            {BaseURL: "http://llm", Model: "c", KeepAlive: "1m"},
+	})
+	if err != nil {
+		t.Fatalf("NewRegistryFromBindings() error = %v", err)
+	}
+	if _, err := reg.Get(capability.Routing); err == nil || !strings.Contains(err.Error(), "no LLM URL") {
+		t.Fatalf("routing error = %v", err)
+	}
+	if _, err := reg.Get(capability.IntentClassification); err == nil || !strings.Contains(err.Error(), "no model") {
+		t.Fatalf("intent error = %v", err)
+	}
+}
+
+func TestHolderAllWhenReady(t *testing.T) {
+	h := capability.NewHolder()
+	h.Store(testRegistry())
+	all := h.All()
+	if len(all) != 3 {
+		t.Fatalf("All() len = %d", len(all))
+	}
+	if all[0].Name != capability.Routing {
+		t.Fatalf("All()[0] = %q", all[0].Name)
+	}
+}
+
+func TestPromptBoundsErrorMessage(t *testing.T) {
+	err := capability.PromptBoundsError{MaxCharacters: 10}
+	if !strings.Contains(err.Error(), "10") {
+		t.Fatalf("Error() = %q", err.Error())
+	}
+}
+
+func TestValidateInputBoundsDisabled(t *testing.T) {
+	def, err := testRegistry().Get(capability.Routing)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	def.MaxInputChars = 0
+	if err := capability.ValidateInputBounds(def, map[string]any{"message": strings.Repeat("x", 1000)}); err != nil {
+		t.Fatalf("disabled bounds: error = %v", err)
+	}
+}
+
+func TestValidateInputBoundsUnknownCapability(t *testing.T) {
+	err := capability.ValidateInputBounds(capability.Definition{Name: "summarize", MaxInputChars: 1}, map[string]any{})
+	if err == nil || !strings.Contains(err.Error(), "unknown capability") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestBuildPromptsRequiresInput(t *testing.T) {
+	reg := testRegistry()
+	routing, err := reg.Get(capability.Routing)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if _, _, err := capability.BuildPrompts(routing, map[string]any{}); err == nil {
+		t.Fatalf("expected missing message error")
+	}
+	translate, err := reg.Get(capability.Translate)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if _, _, err := capability.BuildPrompts(translate, map[string]any{}); err == nil {
+		t.Fatalf("expected missing text error")
+	}
+	if _, _, err := capability.BuildPrompts(capability.Definition{Name: "summarize"}, map[string]any{}); err == nil {
+		t.Fatalf("expected unknown capability error")
+	}
+}
+
+func TestBuildPromptsTranslateDefaultLocales(t *testing.T) {
+	def, err := testRegistry().Get(capability.Translate)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	systemPrompt, _, err := capability.BuildPrompts(def, map[string]any{"text": "Hallo"})
+	if err != nil {
+		t.Fatalf("BuildPrompts() error = %v", err)
+	}
+	if !strings.Contains(systemPrompt, "Dutch") || !strings.Contains(systemPrompt, "English") {
+		t.Fatalf("systemPrompt = %q", systemPrompt)
+	}
+}
+
+func TestParseRawJSONErrors(t *testing.T) {
+	if _, err := capability.ParseRawJSON(""); err == nil {
+		t.Fatalf("expected empty error")
+	}
+	if _, err := capability.ParseRawJSON("{}"); err == nil {
+		t.Fatalf("expected empty JSON object error")
+	}
+}
+
+func TestParseResultUnknownCapability(t *testing.T) {
+	if _, err := capability.ParseResult("summarize", `{"x":1}`); err == nil {
+		t.Fatalf("expected unknown capability error")
+	}
+}
+
 func TestRegistryGet(t *testing.T) {
 	reg := testRegistry()
 
@@ -129,6 +282,43 @@ func TestBuildPromptsTranslate(t *testing.T) {
 	}
 }
 
+func TestBuildPromptsRoutingUsesBuiltInPrompt(t *testing.T) {
+	def, err := testRegistry().Get(capability.Routing)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	systemPrompt, userPrompt, err := capability.BuildPrompts(def, map[string]any{
+		"message": "route me",
+	})
+	if err != nil {
+		t.Fatalf("BuildPrompts() error = %v", err)
+	}
+	if userPrompt != "route me" {
+		t.Fatalf("userPrompt = %q", userPrompt)
+	}
+	if systemPrompt == "" || strings.Contains(systemPrompt, "route me") {
+		t.Fatalf("expected built-in system prompt, got %q", systemPrompt)
+	}
+}
+
+func TestBuildPromptsTranslateUnknownLocale(t *testing.T) {
+	def, err := testRegistry().Get(capability.Translate)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	systemPrompt, _, err := capability.BuildPrompts(def, map[string]any{
+		"text":          "Hallo",
+		"source_locale": "de",
+		"target_locale": "fr",
+	})
+	if err != nil {
+		t.Fatalf("BuildPrompts() error = %v", err)
+	}
+	if !strings.Contains(systemPrompt, "de") || !strings.Contains(systemPrompt, "fr") {
+		t.Fatalf("systemPrompt = %q", systemPrompt)
+	}
+}
+
 func TestBuildPromptsUsesSystemPromptOverride(t *testing.T) {
 	def, err := testRegistry().Get(capability.Routing)
 	if err != nil {
@@ -230,6 +420,10 @@ func TestParseMissingFields(t *testing.T) {
 	_, err = capability.ParseResult(capability.IntentClassification, `{"intent":"x"}`)
 	if err == nil {
 		t.Fatalf("expected error for missing confidence")
+	}
+	_, err = capability.ParseResult(capability.IntentClassification, `{"intent":"","confidence":0.5}`)
+	if err == nil {
+		t.Fatalf("expected error for empty intent")
 	}
 	_, err = capability.ParseResult(capability.Translate, `{"text":""}`)
 	if err == nil {

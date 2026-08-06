@@ -1,8 +1,10 @@
 package configmgmt
 
-// Manifest is the configuration document supplied locally or by AI Manager.
+// Manifest is the ops/bindings document supplied locally or by AI Manager.
+// Capability semantics (prompts, I/O shapes, parsers) live in the gateway's
+// capability package; this document only catalogs models and binds them to
+// those known capability ids via capability_models.
 type Manifest struct {
-	Capabilities     []string                    `json:"capabilities"`
 	Models           []Model                     `json:"models"`
 	CapabilityModels map[string][]RankedModelRef `json:"capability_models"`
 	Ingress          Ingress                     `json:"ingress"`

@@ -17,7 +17,6 @@ import (
 
 func validManifest() configmgmt.Manifest {
 	return configmgmt.Manifest{
-		Capabilities: []string{"routing", "intent-classification", "translate"},
 		Models: []configmgmt.Model{
 			{ID: "qwen3:1.7b", URL: "http://llm-model:11434", Model: "qwen3:1.7b-q4_K_M", KeepAliveSeconds: 300},
 			{ID: "qwen3:4b", URL: "http://llm-model:11434", Model: "qwen3:4b-q4_K_M", KeepAliveSeconds: 300},
@@ -150,6 +149,71 @@ func TestResolveUsesRankZeroOnly(t *testing.T) {
 	}
 }
 
+func TestResolveUsesCapabilityDefaultMaxInputChars(t *testing.T) {
+	m := validManifest()
+	// Omitting max_input_chars (and zero) must use capability.DefaultMaxInputChars.
+	m.CapabilityModels["routing"] = []configmgmt.RankedModelRef{{Rank: 0, Model: "qwen3:1.7b"}}
+	m.CapabilityModels["intent-classification"] = []configmgmt.RankedModelRef{{Rank: 0, Model: "qwen3:4b", MaxInputChars: 0}}
+	snap, err := configmgmt.Resolve(m)
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if snap.Bindings["routing"].MaxInputChars != 200 {
+		t.Fatalf("routing max = %d, want capability default 200", snap.Bindings["routing"].MaxInputChars)
+	}
+	if snap.Bindings["intent-classification"].MaxInputChars != 8000 {
+		t.Fatalf("intent max = %d, want capability default 8000", snap.Bindings["intent-classification"].MaxInputChars)
+	}
+}
+
+func TestResolveHonorsExplicitMaxInputChars(t *testing.T) {
+	m := validManifest()
+	m.CapabilityModels["translate"] = []configmgmt.RankedModelRef{
+		{Rank: 0, Model: "qwen3:14b", MaxInputChars: 42},
+	}
+	snap, err := configmgmt.Resolve(m)
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if snap.Bindings["translate"].MaxInputChars != 42 {
+		t.Fatalf("translate max = %d, want 42", snap.Bindings["translate"].MaxInputChars)
+	}
+}
+
+func TestResolveErrorsWithoutRankZero(t *testing.T) {
+	m := validManifest()
+	m.CapabilityModels["routing"] = []configmgmt.RankedModelRef{{Rank: 1, Model: "qwen3:1.7b"}}
+	_, err := configmgmt.Resolve(m)
+	if err == nil || !strings.Contains(err.Error(), "rank 0") {
+		t.Fatalf("error = %v, want rank 0", err)
+	}
+}
+
+func TestResolveErrorsUnknownModel(t *testing.T) {
+	m := validManifest()
+	m.CapabilityModels["routing"] = []configmgmt.RankedModelRef{{Rank: 0, Model: "missing"}}
+	_, err := configmgmt.Resolve(m)
+	if err == nil || !strings.Contains(err.Error(), "unknown model") {
+		t.Fatalf("error = %v, want unknown model", err)
+	}
+}
+
+func TestResolveBindsOnlyKnownCapabilities(t *testing.T) {
+	m := validManifest()
+	snap, err := configmgmt.Resolve(m)
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if len(snap.Bindings) != 3 {
+		t.Fatalf("bindings = %d, want 3 known capabilities", len(snap.Bindings))
+	}
+	for _, name := range []string{"routing", "intent-classification", "translate"} {
+		if _, ok := snap.Bindings[name]; !ok {
+			t.Fatalf("missing binding for %q", name)
+		}
+	}
+}
+
 func TestResolveTrimsTrailingSlashOnURL(t *testing.T) {
 	m := validManifest()
 	m.Models[0].URL = "http://llm-model:11434/"
@@ -185,23 +249,60 @@ func TestValidateErrors(t *testing.T) {
 		substr string
 	}{
 		{
-			name: "empty capabilities",
+			name: "empty capability_models",
 			mutate: func(m *configmgmt.Manifest) {
-				m.Capabilities = nil
+				m.CapabilityModels = nil
 			},
-			substr: "capabilities",
+			substr: "capability_models",
 		},
 		{
-			name: "duplicate capability",
+			name: "unknown capability_models key",
 			mutate: func(m *configmgmt.Manifest) {
-				m.Capabilities = append(m.Capabilities, "routing")
+				m.CapabilityModels["summarize"] = []configmgmt.RankedModelRef{{Rank: 0, Model: "qwen3:1.7b"}}
 			},
-			substr: "duplicates",
+			substr: "unknown capability",
 		},
 		{
-			name: "missing required capability",
+			name: "padded capability_models key",
 			mutate: func(m *configmgmt.Manifest) {
-				m.Capabilities = []string{"routing", "intent-classification"}
+				m.CapabilityModels[" routing "] = []configmgmt.RankedModelRef{{Rank: 0, Model: "qwen3:1.7b"}}
+			},
+			substr: "unknown capability",
+		},
+		{
+			name: "empty capability_models map",
+			mutate: func(m *configmgmt.Manifest) {
+				m.CapabilityModels = map[string][]configmgmt.RankedModelRef{}
+			},
+			substr: "capability_models",
+		},
+		{
+			name: "empty capability_models entry list",
+			mutate: func(m *configmgmt.Manifest) {
+				m.CapabilityModels["translate"] = []configmgmt.RankedModelRef{}
+			},
+			substr: "translate",
+		},
+		{
+			name: "blank capability model ref",
+			mutate: func(m *configmgmt.Manifest) {
+				m.CapabilityModels["routing"] = []configmgmt.RankedModelRef{{Rank: 0, Model: "  "}}
+			},
+			substr: "model must not be blank",
+		},
+		{
+			name: "negative max_input_chars",
+			mutate: func(m *configmgmt.Manifest) {
+				m.CapabilityModels["routing"] = []configmgmt.RankedModelRef{
+					{Rank: 0, Model: "qwen3:1.7b", MaxInputChars: -1},
+				}
+			},
+			substr: "max_input_chars",
+		},
+		{
+			name: "missing capability_models entry",
+			mutate: func(m *configmgmt.Manifest) {
+				delete(m.CapabilityModels, "translate")
 			},
 			substr: "translate",
 		},
@@ -248,13 +349,6 @@ func TestValidateErrors(t *testing.T) {
 			substr: "duplicates id",
 		},
 		{
-			name: "missing capability_models entry",
-			mutate: func(m *configmgmt.Manifest) {
-				delete(m.CapabilityModels, "translate")
-			},
-			substr: "translate",
-		},
-		{
 			name: "missing rank 0",
 			mutate: func(m *configmgmt.Manifest) {
 				m.CapabilityModels["routing"] = []configmgmt.RankedModelRef{{Rank: 1, Model: "qwen3:1.7b"}}
@@ -277,6 +371,13 @@ func TestValidateErrors(t *testing.T) {
 				m.CapabilityModels["routing"] = []configmgmt.RankedModelRef{{Rank: 0, Model: "missing"}}
 			},
 			substr: "unknown model",
+		},
+		{
+			name: "blank adapter",
+			mutate: func(m *configmgmt.Manifest) {
+				m.Ingress.Adapter = "  "
+			},
+			substr: "adapter",
 		},
 		{
 			name: "unsupported adapter",
@@ -359,16 +460,40 @@ func TestValidateErrors(t *testing.T) {
 }
 
 func TestParseInvalidJSON(t *testing.T) {
-	_, err := configmgmt.Parse([]byte(`{"capabilities":`))
+	_, err := configmgmt.Parse([]byte(`{"models":`))
 	if err == nil {
 		t.Fatalf("expected decode error")
 	}
 }
 
 func TestParseRejectsInvalidManifest(t *testing.T) {
-	_, err := configmgmt.Parse([]byte(`{"capabilities":["routing"]}`))
+	_, err := configmgmt.Parse([]byte(`{"models":[]}`))
 	if err == nil {
 		t.Fatalf("expected validation error")
+	}
+}
+
+func TestParseIgnoresLegacyCapabilitiesField(t *testing.T) {
+	m := validManifest()
+	raw, err := json.Marshal(m)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var asMap map[string]any
+	if err := json.Unmarshal(raw, &asMap); err != nil {
+		t.Fatalf("unmarshal map: %v", err)
+	}
+	asMap["capabilities"] = []string{"routing", "intent-classification", "translate", "extra"}
+	withLegacy, err := json.Marshal(asMap)
+	if err != nil {
+		t.Fatalf("marshal legacy: %v", err)
+	}
+	got, err := configmgmt.Parse(withLegacy)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if len(got.Models) != 3 {
+		t.Fatalf("models = %d", len(got.Models))
 	}
 }
 
@@ -442,7 +567,7 @@ func TestFetchURLNon2xx(t *testing.T) {
 
 func TestFetchURLInvalidBody(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"capabilities":[]}`))
+		_, _ = w.Write([]byte(`{"models":[]}`))
 	}))
 	defer srv.Close()
 
@@ -494,7 +619,7 @@ func TestManagerBootstrapAndSoftFailPoll(t *testing.T) {
 
 func TestManagerBootstrapInvalidFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "bad.json")
-	_ = os.WriteFile(path, []byte(`{"capabilities":[]}`), 0o644)
+	_ = os.WriteFile(path, []byte(`{"models":[]}`), 0o644)
 	mgr := configmgmt.NewManager("http://example.invalid/manifest.json", time.Hour, nil, nil)
 	if err := mgr.Bootstrap(path); err == nil {
 		t.Fatalf("expected bootstrap error")
@@ -684,7 +809,7 @@ func TestManagerPollInvalidBodyKeepsPrevious(t *testing.T) {
 	_ = os.WriteFile(path, data, 0o644)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"capabilities":[]}`))
+		_, _ = w.Write([]byte(`{"models":[]}`))
 	}))
 	defer srv.Close()
 

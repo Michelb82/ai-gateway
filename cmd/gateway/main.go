@@ -57,12 +57,14 @@ func main() {
 	defer stop()
 
 	registryHolder := capability.NewHolder()
+	overridePolicy := capability.NewOverridePolicyHolder()
 	llmPool := ollama.NewPool()
 	plane := &dataPlane{
-		parent:   ctx,
-		registry: registryHolder,
-		llmPool:  llmPool,
-		logger:   logger,
+		parent:         ctx,
+		registry:       registryHolder,
+		overridePolicy: overridePolicy,
+		llmPool:        llmPool,
+		logger:         logger,
 	}
 
 	healthHandler := health.NewHandler(registryHolder, llmPool)
@@ -105,10 +107,11 @@ func main() {
 }
 
 type dataPlane struct {
-	parent   context.Context
-	registry *capability.Holder
-	llmPool  *ollama.Pool
-	logger   *slog.Logger
+	parent         context.Context
+	registry       *capability.Holder
+	overridePolicy *capability.OverridePolicyHolder
+	llmPool        *ollama.Pool
+	logger         *slog.Logger
 
 	mu       sync.Mutex
 	snap     *configmgmt.Snapshot
@@ -163,6 +166,7 @@ func (d *dataPlane) Apply(snap configmgmt.Snapshot, first bool) error {
 
 	cloudevent.ConfigureTypes(snap.CloudEventTypePrefix)
 	d.registry.Store(reg)
+	d.overridePolicy.Store(capability.PolicyFromOrgs(snap.SystemPromptOverrideOrgs, snap.MaxSystemPromptChars))
 
 	targets := make([]ollama.ModelTarget, 0, len(reg.All()))
 	for _, def := range reg.All() {
@@ -203,7 +207,7 @@ func (d *dataPlane) Apply(snap configmgmt.Snapshot, first bool) error {
 			snap.PriorityHighCount,
 			snap.PriorityMediumCount,
 		)
-		appWorker := worker.New(eventQueue, eventQueue, d.llmPool, d.llmPool, d.registry, d.logger)
+		appWorker := worker.New(eventQueue, eventQueue, d.llmPool, d.llmPool, d.registry, d.overridePolicy, d.logger)
 		go func() {
 			defer close(d.done)
 			if err := appWorker.Run(workerCtx); err != nil && workerCtx.Err() == nil {

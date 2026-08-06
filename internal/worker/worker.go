@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/mywebsite/construction-ai-gateway/internal/capability"
 	"github.com/mywebsite/construction-ai-gateway/internal/cloudevent"
@@ -30,13 +31,18 @@ type CapabilityResolver interface {
 	Get(name string) (capability.Definition, error)
 }
 
+type OverridePolicySource interface {
+	Get() capability.OverridePolicy
+}
+
 type Worker struct {
-	consumer  RequestConsumer
-	publisher ResponsePublisher
-	ollama    ChatCompleter
-	models    ModelChecker
-	registry  CapabilityResolver
-	logger    *slog.Logger
+	consumer       RequestConsumer
+	publisher      ResponsePublisher
+	ollama         ChatCompleter
+	models         ModelChecker
+	registry       CapabilityResolver
+	overridePolicy OverridePolicySource
+	logger         *slog.Logger
 }
 
 func New(
@@ -45,18 +51,23 @@ func New(
 	ollama ChatCompleter,
 	models ModelChecker,
 	registry CapabilityResolver,
+	overridePolicy OverridePolicySource,
 	logger *slog.Logger,
 ) *Worker {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	if overridePolicy == nil {
+		overridePolicy = capability.NewOverridePolicyHolder()
+	}
 	return &Worker{
-		consumer:  consumer,
-		publisher: publisher,
-		ollama:    ollama,
-		models:    models,
-		registry:  registry,
-		logger:    logger,
+		consumer:       consumer,
+		publisher:      publisher,
+		ollama:         ollama,
+		models:         models,
+		registry:       registry,
+		overridePolicy: overridePolicy,
+		logger:         logger,
 	}
 }
 
@@ -113,6 +124,22 @@ func (w *Worker) handle(ctx context.Context, event *cloudevent.Event) error {
 		return w.publishFailure(ctx, event, capabilityName, err)
 	}
 
+	overrideAuthorized := false
+	if override := stringValue(input["system_prompt"]); override != "" {
+		policy := w.overridePolicy.Get()
+		orgID := ""
+		if event.OrganisationID != nil {
+			orgID = strings.TrimSpace(*event.OrganisationID)
+		}
+		if !policy.Allows(orgID) {
+			return w.publishFailure(ctx, event, capabilityName, fmt.Errorf("data.input.system_prompt is not allowed for this organisation"))
+		}
+		if utf8.RuneCountInString(override) > policy.MaxSystemPromptChars {
+			return w.publishFailure(ctx, event, capabilityName, capability.PromptBoundsError{MaxCharacters: policy.MaxSystemPromptChars})
+		}
+		overrideAuthorized = true
+	}
+
 	available, err := w.models.ModelAvailable(ctx, def.BaseURL, def.Model)
 	if err != nil {
 		w.logger.Error("model availability check failed",
@@ -143,8 +170,8 @@ func (w *Worker) handle(ctx context.Context, event *cloudevent.Event) error {
 	}
 
 	var result map[string]any
-	if stringValue(input["system_prompt"]) != "" {
-		// Caller-owned prompt ⇒ caller-owned response schema.
+	if overrideAuthorized {
+		// Authorized caller-owned prompt ⇒ caller-owned response schema.
 		result, err = capability.ParseRawJSON(raw)
 	} else {
 		result, err = capability.ParseResult(capabilityName, raw)

@@ -45,6 +45,8 @@
     "message_prefix": "com.mywebsite.ai",
     "http_address": ":80",
     "priority_count_high": 3,
-    "priority_count_medium": 3
+    "priority_count_medium": 3,
+    "max_system_prompt_chars": 4000,
+    "system_prompt_override_orgs": []
   }
 }

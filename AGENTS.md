@@ -15,6 +15,12 @@ Before **every** commit that changes code (Go sources, manifests used by tests, 
 
 Failed tests block the next commit until they are fixed.
 
+A git pre-commit hook lives in [`.githooks/pre-commit`](.githooks/pre-commit) and runs `make test-docker`. Enable it in a fresh clone with:
+
+```bash
+cp .githooks/pre-commit .git/hooks/pre-commit
+```
+
 ## Feature tracking (`feature/gw-*.md`)
 
 On **every feature request** (new capability, enhancement, refactor with user-visible/architectural impact, or hardening follow-up):

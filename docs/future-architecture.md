@@ -680,10 +680,6 @@ Instead, it operates at the boundary between the platform's desired state and th
                                │
                                │ desired state
                                ▼
-                         Orchestration
-                               │
-                               │ runtime operation
-                               ▼
                         Runtime Handler
                                │
                   ┌────────────┼────────────┐
@@ -697,6 +693,18 @@ Instead, it operates at the boundary between the platform's desired state and th
                                │
                                ▼
                             Model
+```
+Upon response of the runtime handler we push the new manifest to the data plane
+```
+                         Service Control
+                               │
+                               │ desired state
+                               ▼
+                         Orchestration
+                               │
+                               │ runtime operation
+                               ▼
+                       Inference Gateway
 ```
 
 The Runtime Handler is responsible for translating platform-level requirements into infrastructure-specific operations.
@@ -813,8 +821,7 @@ The earlier versions establish:
 V1  → Inference + basic control
 V2  → Request orchestration + policy
 V3  → Augmentation
-V4  → Mature data-plane integration
-V5  → Infrastructure/runtime lifecycle
+V4  → Infrastructure/runtime lifecycle
 ```
 
 This keeps infrastructure automation separate from inference execution.
@@ -909,10 +916,20 @@ The final architecture separates the responsibilities into clear boundaries.
                    │              └───────┬────────┘
                    │                      │
                    │                      ▼
-                   │              Inference Gateway
+                   |              ┌────────────────────┐
+                   |              │ Inference Gateway  │
+                   |              └───────┬────────────┘
                    │                      │
+                   |                      ▼                      
+                   |             ┌──────────────────┐    
+                   |             │ Inference Runtime│    
+                   |             └────────┬─────────┘
+                   |                      |
                    └──────────────┬───────┘
-                                  ▼
+                         ┌────────────────────┐
+                         │ Inference Gateway  │
+                         └───────┬────────────┘
+                                 ▼
                          ┌────────────────┐
                          │ Orchestration  │
                          └───────┬────────┘

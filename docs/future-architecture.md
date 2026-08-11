@@ -685,7 +685,7 @@ The gateway remains independent of Augmentation.
 
 V4.x introduces the **Runtime Handler** as the infrastructure abstraction for managing inference runtimes.
 
-The Runtime Handler is deliberately **not part of the data-plane request path**. An inference request should never need to pass through the Runtime Handler.
+The Runtime Handler is deliberately not part of the data-plane request path. An inference request should never need to pass through the Runtime Handler.
 
 Instead, it operates at the boundary between the platform's desired state and the infrastructure required to provide that state.
 
@@ -750,6 +750,7 @@ This may involve:
 * Scaling runtime instances
 * Draining runtimes before removal
 * Managing runtime lifecycle
+* Adapter provisioning
 * Interacting with container or orchestration infrastructure
 
 The implementation of these operations remains hidden behind the Runtime Handler interface.
@@ -1037,3 +1038,21 @@ Infrastructure
 ```
 
 The platform therefore separates **request coordination, policy, inference execution, augmentation and infrastructure management** into independent capabilities while maintaining a single coherent request lifecycle.
+
+
+## Scope Boundary: Model Development and Training
+
+The platform is an **inference orchestration and runtime management system**. It does not provide facilities for developing, training, fine-tuning, or modifying models.
+
+The following activities are explicitly **out of scope**:
+
+* General model training and pre-training.
+* Fine-tuning or retraining of foundation models.
+* Generation or training of LoRA adapters or other parameter-efficient fine-tuning artifacts.
+* Generation or training of embedding models.
+* Training of reranking models or other auxiliary ML models.
+* Modification, quantization, or conversion of model weights as part of the platform's runtime operation.
+* Dataset preparation, labeling, evaluation, or management for model training.
+* Management of ML training infrastructure such as GPU training clusters.
+
+These activities may be performed by external tools, teams, or platforms. The resulting artifacts may subsequently be made available to this platform for inference.

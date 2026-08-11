@@ -150,7 +150,7 @@ The ingress layer does not need to understand which model or runtime will ultima
 
 # Orchestration
 
-**Orchestration** is the central coordinator of the data-plane request lifecycle.
+Orchestration is the central coordinator of the data-plane request lifecycle.
 
 It receives a request from the Ingress Layer and determines how the request should proceed.
 
@@ -186,6 +186,22 @@ The policy decision can determine whether the request is permitted and what cons
 Orchestration can then route the request to the appropriate Inference Gateway.
 
 ---
+
+## Reason for Existence
+
+When consuming AI inference, the consumer service should know as little as possible about the underlying inference infrastructure. It should not need to understand which models, runtimes, providers or hardware are available, or how a particular inference capability is executed.
+
+At the same time, the consumer must retain the ability to define what it is allowed to ask for and how requests should be processed securely. This is where the **Orchestration layer** and **Policy layer** become important.
+
+The Orchestration layer coordinates the request lifecycle, while the Policy layer determines whether a requested operation is permitted and what constraints apply. Together, they can reject, restrict or modify requests before they reach the inference infrastructure. This provides a controlled boundary between consuming services and the capabilities exposed by the platform.
+
+Orchestration also removes the need for consumer services to repeatedly manage inference workflows themselves. Instead of requiring a service to make a request, inspect the result, determine the next capability to invoke and issue another request, a **CloudEvent can describe possible upgrade and follow-up paths** as part of the workflow.
+
+For example, a request may initially use a routing prompt to determine which capability should handle it. If the selected route cannot be executed, the workflow can define an upgrade path to an **intent-classification capability**. The Orchestration layer can then invoke that capability and continue the workflow without requiring the consuming service to understand the fallback mechanism.
+
+Similarly, a translation request may require the same operation to be performed for several target languages. Rather than requiring the consumer to orchestrate each individual inference request, the workflow can describe the required follow-up operations. The Orchestration layer can repeat the process until all requested translations have been completed.
+
+This makes Orchestration more than a request router. It becomes the workflow boundary between consuming services and inference capabilities, allowing complex inference workflows to be expressed, secured and executed without exposing the underlying infrastructure or requiring every consumer to implement its own orchestration logic.
 
 # Policy Service
 
@@ -351,8 +367,6 @@ Examples include:
 * Retrieval-augmented generation
 * Context retrieval
 * Prompt or context enrichment
-* Model adaptation
-* LoRA-based augmentation
 * Additional preprocessing or post-processing
 
 When augmentation is required, the Inference Gateway delegates to it.

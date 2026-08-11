@@ -667,33 +667,205 @@ The gateway remains independent of Augmentation.
 
 ---
 
-## V4.x — Runtime Handler
+# V4.x — Runtime Handler
 
-V4.x introduces the **Runtime Handler** as the infrastructure abstraction responsible for managing inference runtime lifecycle.
+V4.x introduces the **Runtime Handler** as the infrastructure abstraction for managing inference runtimes.
 
-The Runtime Handler is not part of the request path.
+The Runtime Handler is deliberately **not part of the data-plane request path**. An inference request should never need to pass through the Runtime Handler.
 
-Instead, it operates alongside the control-plane and infrastructure-management concerns:
+Instead, it operates at the boundary between the platform's desired state and the infrastructure required to provide that state.
 
 ```text
-                     Service Control
-                           │
-                           ▼
-                     Orchestration
-                           │
-                           ▼
-                     Runtime Handler
-                           │
-                           ▼
-                  Inference Infrastructure
-                           │
-                           ▼
-                  Inference Runtime
+                         Service Control
+                               │
+                               │ desired state
+                               ▼
+                         Orchestration
+                               │
+                               │ runtime operation
+                               ▼
+                        Runtime Handler
+                               │
+                  ┌────────────┼────────────┐
+                  │            │            │
+                  ▼            ▼            ▼
+              Containers     Nodes       Runtime
+                  │            │            │
+                  └────────────┼────────────┘
+                               ▼
+                      Inference Runtime
+                               │
+                               ▼
+                            Model
 ```
 
-The Runtime Handler abstracts how inference runtimes are deployed, updated, replaced and scaled.
+The Runtime Handler is responsible for translating platform-level requirements into infrastructure-specific operations.
 
-The Inference Gateway therefore remains unaware of the underlying infrastructure implementation.
+For example, the platform may determine that a capability requires:
+
+```text
+Capability
+    │
+    ▼
+Model
+    │
+    ▼
+Inference Runtime
+    │
+    ▼
+GPU node
+```
+
+The Runtime Handler determines how that requirement is actually realised.
+
+This may involve:
+
+* Creating or removing inference runtime instances
+* Selecting or preparing compute nodes
+* Deploying inference runtimes
+* Updating runtime configuration
+* Replacing failed runtimes
+* Scaling runtime instances
+* Draining runtimes before removal
+* Managing runtime lifecycle
+* Interacting with container or orchestration infrastructure
+
+The implementation of these operations remains hidden behind the Runtime Handler interface.
+
+The underlying infrastructure could therefore change without requiring changes to the Inference Gateway.
+
+For example:
+
+```text
+Runtime Handler
+      │
+      ├── Docker
+      ├── Kubernetes
+      ├── Docker Swarm
+      ├── Ansible
+      ├── Bare Metal
+      └── Other infrastructure
+```
+
+The Runtime Handler may also consume runtime health and lifecycle information to determine whether the infrastructure has successfully reached the desired state.
+
+## Relationship with Service Control
+
+Service Control maintains the platform-level state and configuration.
+
+The Runtime Handler does not become another central management system.
+
+Instead, the responsibilities remain separated:
+
+| Component             | Responsibility                                                       |
+| --------------------- | -------------------------------------------------------------------- |
+| **Service Control**   | Maintains configuration, registrations, manifests and platform state |
+| **Orchestration**     | Determines and coordinates required operational changes              |
+| **Runtime Handler**   | Executes infrastructure-specific runtime operations                  |
+| **Inference Gateway** | Processes inference requests                                         |
+| **Inference Runtime** | Executes models                                                      |
+
+This creates a clear control loop:
+
+```text
+        Desired State
+             │
+             ▼
+      Service Control
+             │
+             ▼
+       Orchestration
+             │
+             ▼
+      Runtime Handler
+             │
+             ▼
+       Infrastructure
+             │
+             ▼
+    Inference Runtime
+             │
+             ▼
+       Observed State
+             │
+             └──────────────► Service Control
+```
+
+The important distinction is that the Runtime Handler **implements infrastructure changes; it does not decide the platform's overall desired state**.
+
+## Independent Use
+
+Like the other platform components, the Runtime Handler should remain independently usable.
+
+It should expose a stable contract for runtime lifecycle operations without requiring the Inference Gateway to exist.
+
+For example, another service could use the Runtime Handler to deploy an inference runtime without sending inference traffic through the rest of the platform.
+
+This preserves the architectural principle that the services are **composable capabilities rather than mandatory stages of one pipeline**.
+
+## Why V4.x
+
+Runtime management is intentionally introduced after the request-processing architecture has stabilised.
+
+The earlier versions establish:
+
+```text
+V1  → Inference + basic control
+V2  → Request orchestration + policy
+V3  → Augmentation
+V4  → Mature data-plane integration
+V5  → Infrastructure/runtime lifecycle
+```
+
+This keeps infrastructure automation separate from inference execution.
+
+The final architecture therefore has two distinct flows:
+
+### Request flow
+
+```text
+Ingress
+   ↓
+Orchestration
+   ↓
+Policy
+   ↓
+Inference Gateway
+   ↓
+[Augmentation]
+   ↓
+Inference Runtime
+   ↓
+Inference Gateway
+   ↓
+Orchestration
+   ↓
+Policy
+   ↓
+Egress
+```
+
+### Infrastructure flow
+
+```text
+Service Control
+      ↓
+Orchestration
+      ↓
+Runtime Handler
+      ↓
+Infrastructure
+      ↓
+Inference Runtime
+      ↓
+Observed State
+      ↓
+Service Control
+```
+
+**The request flow executes workloads.
+The infrastructure flow creates and maintains the capability to execute those workloads.**
+
 
 ---
 
@@ -834,202 +1006,3 @@ Infrastructure
 ```
 
 The platform therefore separates **request coordination, policy, inference execution, augmentation and infrastructure management** into independent capabilities while maintaining a single coherent request lifecycle.
-
-# V5.x — Runtime Handler
-
-V5.x introduces the **Runtime Handler** as the infrastructure abstraction for managing inference runtimes.
-
-The Runtime Handler is deliberately **not part of the data-plane request path**. An inference request should never need to pass through the Runtime Handler.
-
-Instead, it operates at the boundary between the platform's desired state and the infrastructure required to provide that state.
-
-```text
-                         Service Control
-                               │
-                               │ desired state
-                               ▼
-                         Orchestration
-                               │
-                               │ runtime operation
-                               ▼
-                        Runtime Handler
-                               │
-                  ┌────────────┼────────────┐
-                  │            │            │
-                  ▼            ▼            ▼
-              Containers     Nodes       Runtime
-                  │            │            │
-                  └────────────┼────────────┘
-                               ▼
-                      Inference Runtime
-                               │
-                               ▼
-                            Model
-```
-
-The Runtime Handler is responsible for translating platform-level requirements into infrastructure-specific operations.
-
-For example, the platform may determine that a capability requires:
-
-```text
-Capability
-    │
-    ▼
-Model
-    │
-    ▼
-Inference Runtime
-    │
-    ▼
-GPU node
-```
-
-The Runtime Handler determines how that requirement is actually realised.
-
-This may involve:
-
-* Creating or removing inference runtime instances
-* Selecting or preparing compute nodes
-* Deploying inference runtimes
-* Updating runtime configuration
-* Replacing failed runtimes
-* Scaling runtime instances
-* Draining runtimes before removal
-* Managing runtime lifecycle
-* Interacting with container or orchestration infrastructure
-
-The implementation of these operations remains hidden behind the Runtime Handler interface.
-
-The underlying infrastructure could therefore change without requiring changes to the Inference Gateway.
-
-For example:
-
-```text
-Runtime Handler
-      │
-      ├── Docker
-      ├── Kubernetes
-      ├── Docker Swarm
-      ├── Ansible
-      ├── Bare Metal
-      └── Other infrastructure
-```
-
-The Runtime Handler may also consume runtime health and lifecycle information to determine whether the infrastructure has successfully reached the desired state.
-
-## Relationship with Service Control
-
-Service Control maintains the platform-level state and configuration.
-
-The Runtime Handler does not become another central management system.
-
-Instead, the responsibilities remain separated:
-
-| Component             | Responsibility                                                       |
-| --------------------- | -------------------------------------------------------------------- |
-| **Service Control**   | Maintains configuration, registrations, manifests and platform state |
-| **Orchestration**     | Determines and coordinates required operational changes              |
-| **Runtime Handler**   | Executes infrastructure-specific runtime operations                  |
-| **Inference Gateway** | Processes inference requests                                         |
-| **Inference Runtime** | Executes models                                                      |
-
-This creates a clear control loop:
-
-```text
-        Desired State
-             │
-             ▼
-      Service Control
-             │
-             ▼
-       Orchestration
-             │
-             ▼
-      Runtime Handler
-             │
-             ▼
-       Infrastructure
-             │
-             ▼
-    Inference Runtime
-             │
-             ▼
-       Observed State
-             │
-             └──────────────► Service Control
-```
-
-The important distinction is that the Runtime Handler **implements infrastructure changes; it does not decide the platform's overall desired state**.
-
-## Independent Use
-
-Like the other platform components, the Runtime Handler should remain independently usable.
-
-It should expose a stable contract for runtime lifecycle operations without requiring the Inference Gateway to exist.
-
-For example, another service could use the Runtime Handler to deploy an inference runtime without sending inference traffic through the rest of the platform.
-
-This preserves the architectural principle that the services are **composable capabilities rather than mandatory stages of one pipeline**.
-
-## Why V5.x
-
-Runtime management is intentionally introduced after the request-processing architecture has stabilised.
-
-The earlier versions establish:
-
-```text
-V1  → Inference + basic control
-V2  → Request orchestration + policy
-V3  → Augmentation
-V4  → Mature data-plane integration
-V5  → Infrastructure/runtime lifecycle
-```
-
-This keeps infrastructure automation separate from inference execution.
-
-The final architecture therefore has two distinct flows:
-
-### Request flow
-
-```text
-Ingress
-   ↓
-Orchestration
-   ↓
-Policy
-   ↓
-Inference Gateway
-   ↓
-[Augmentation]
-   ↓
-Inference Runtime
-   ↓
-Inference Gateway
-   ↓
-Orchestration
-   ↓
-Policy
-   ↓
-Egress
-```
-
-### Infrastructure flow
-
-```text
-Service Control
-      ↓
-Orchestration
-      ↓
-Runtime Handler
-      ↓
-Infrastructure
-      ↓
-Inference Runtime
-      ↓
-Observed State
-      ↓
-Service Control
-```
-
-**The request flow executes workloads.
-The infrastructure flow creates and maintains the capability to execute those workloads.**

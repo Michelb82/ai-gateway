@@ -36,7 +36,7 @@ The resulting architecture separates responsibilities into independently deploya
 ```text
                          CONTROL PLANE
                     ─────────────────────
-                       Service Control
+                       Service Manager
                              │
                  configuration / state /
                   registration / desired state
@@ -527,16 +527,16 @@ Orchestration remains responsible for the broader request lifecycle and service-
 
 ---
 
-# Service Control
+# Service Manager
 
-**Service Control** is the control-plane component responsible for centralized management of the data-plane services.
+**Service Manager** is the control-plane component responsible for centralized management of the data-plane services.
 
 It is deliberately outside the request path.
 
 ```text
                     CONTROL PLANE
 
-                    Service Control
+                    Service Manager
                           │
              ┌────────────┼────────────┐
              │            │            │
@@ -568,7 +568,7 @@ Ingress → Orchestration → Policy → Inference Gateway
 Inference Gateway → Orchestration → Policy → Egress
 ```
 
-Service Control may provide:
+Service Manager may provide:
 
 * Service registration
 * Service discovery
@@ -582,13 +582,13 @@ Service Control may provide:
 
 The data-plane services can operate independently when centralized control is not required.
 
-When integrated with Service Control, they can register themselves, receive configuration and participate in centralized platform management.
+When integrated with Service Manager, they can register themselves, receive configuration and participate in centralized platform management.
 
 ---
 
 # Architectural Evolution
 
-## V1.x — Inference Gateway + Service Control
+## V1.x — Inference Gateway + Service Manager
 
 The first version establishes the fundamental boundaries.
 
@@ -608,9 +608,9 @@ The initial gateway provides:
 * Exponential backoff
 * Service registration
 
-### Service Control
+### Service Manager
 
-Service Control initially provides:
+Service Manager initially provides:
 
 * Health endpoints
 * Service registration
@@ -621,7 +621,7 @@ Service Control initially provides:
 
 Deployment and automated scaling remain out of scope.
 
-The initial manifest remains deliberately limited to **bindings**. Capability implementation details such as prompts, I/O shapes and parsers remain within the data plane until a later control-plane design moves those definitions into Service Control.
+The initial manifest remains deliberately limited to **bindings**. Capability implementation details such as prompts, I/O shapes and parsers remain within the data plane until a later control-plane design moves those definitions into Service Manager.
 
 ---
 
@@ -690,7 +690,7 @@ The Runtime Handler is deliberately not part of the data-plane request path. An 
 Instead, it operates at the boundary between the platform's desired state and the infrastructure required to provide that state.
 
 ```text
-                         Service Control
+                         Service Manager
                                │
                                │ desired state
                                ▼
@@ -710,7 +710,7 @@ Instead, it operates at the boundary between the platform's desired state and th
 ```
 Upon response of the runtime handler we push the new manifest to the data plane
 ```
-                         Service Control
+                         Service Manager
                                │
                                │ desired state
                                ▼
@@ -772,9 +772,9 @@ Runtime Handler
 
 The Runtime Handler may also consume runtime health and lifecycle information to determine whether the infrastructure has successfully reached the desired state.
 
-## Relationship with Service Control
+## Relationship with Service Manager
 
-Service Control maintains the platform-level state and configuration.
+Service Manager maintains the platform-level state and configuration.
 
 The Runtime Handler does not become another central management system.
 
@@ -782,7 +782,7 @@ Instead, the responsibilities remain separated:
 
 | Component             | Responsibility                                                       |
 | --------------------- | -------------------------------------------------------------------- |
-| **Service Control**   | Maintains configuration, registrations, manifests and platform state |
+| **Service Manager**   | Maintains configuration, registrations, manifests and platform state |
 | **Orchestration**     | Determines and coordinates required operational changes              |
 | **Runtime Handler**   | Executes infrastructure-specific runtime operations                  |
 | **Inference Gateway** | Processes inference requests                                         |
@@ -794,7 +794,7 @@ This creates a clear control loop:
         Desired State
              │
              ▼
-      Service Control
+      Service Manager
              │
              ▼
        Orchestration
@@ -811,7 +811,7 @@ This creates a clear control loop:
              ▼
        Observed State
              │
-             └──────────────► Service Control
+             └──────────────► Service Manager
 ```
 
 The important distinction is that the Runtime Handler **implements infrastructure changes; it does not decide the platform's overall desired state**.
@@ -870,7 +870,7 @@ Egress
 ### Infrastructure flow
 
 ```text
-Service Control
+Service Manager
       ↓
 Orchestration
       ↓
@@ -882,7 +882,7 @@ Inference Runtime
       ↓
 Observed State
       ↓
-Service Control
+Service Manager
 ```
 
 **The request flow executes workloads.
@@ -1009,7 +1009,7 @@ The final architecture separates the responsibilities into clear boundaries.
 ════════════════════════ CONTROL PLANE ═════════════════════════
 
                          ┌────────────────┐
-                         │ Service Control│
+                         │ Service Manager│
                          └───────┬────────┘
                                  │
                  configuration / registration /
@@ -1046,7 +1046,7 @@ A deployment can use the Inference Gateway directly against an inference runtime
 
 ### 5. The control plane is outside the request path
 
-Service Control manages and configures the data plane but does not process inference requests.
+Service Manager manages and configures the data plane but does not process inference requests.
 
 ### 6. Services remain independently deployable
 

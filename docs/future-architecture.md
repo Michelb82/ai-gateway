@@ -888,6 +888,49 @@ Service Control
 **The request flow executes workloads.
 The infrastructure flow creates and maintains the capability to execute those workloads.**
 
+## V5.x — KV Cache Lifecycle Management
+
+V5.x introduces **on-demand KV-cache hot loading and lifecycle management**. KV caches are kept local to the inference runtime and loaded when required. Caches may be recycled or evicted when no longer useful, allowing GPU memory to be reclaimed without introducing distributed cache infrastructure.
+
+```text
+Request
+   │
+   ▼
+Runtime Handler
+   │
+   ├── KV cache available ──► Reuse
+   │
+   └── KV cache unavailable
+              │
+              ▼
+         Hot load / generate
+              │
+              ▼
+           Inference
+              │
+              ▼
+       Recycle / evict when
+          no longer useful
+```
+
+### In scope
+
+* On-demand KV-cache loading
+* Local KV-cache reuse
+* Cache lifecycle and eviction
+* Recycling based on usage, age, or resource pressure
+* Cache compatibility / identity management
+* Runtime-handler integration
+
+### Out of scope
+
+* Distributed KV-cache storage
+* Cross-node KV-cache transfer
+* Persistent KV-cache storage
+* Predictive cache warming
+* Cache-aware scheduling
+
+Distributed caching can be introduced later if measurements demonstrate that local on-demand loading is insufficient.
 
 ---
 

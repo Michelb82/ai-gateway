@@ -932,6 +932,149 @@ Runtime Handler
 
 Distributed caching can be introduced later if measurements demonstrate that local on-demand loading is insufficient.
 
+# Next Version — Capability Workflows and Agentic Execution
+
+The platform evolves from executing individual capabilities to executing **capability sequences**.
+
+A capability sequence defines the available steps, tools, inference capabilities and execution context for achieving an outcome. The owning team configures the sequence in Service Control, including which tools are available to the model.
+
+The orchestrator determines the `next` step during execution.
+
+## Workflow
+
+```text
+User Request
+     │
+     ▼
+  Capability
+     │
+     ▼
+Capability Sequence
+     │
+     ▼
+  Orchestrator
+     │
+     ├── next → Tool
+     │            │
+     │            ▼
+     │        Tool Result
+     │            │
+     │            ▼
+     ├── next → Inference Capability
+     │            │
+     │            ▼
+     │        Inference Result
+     │            │
+     │            ▼
+     ├── next → Iterate
+     │            │
+     │            ▼
+     │        Tool / Capability
+     │            │
+     │            ▼
+     └── next → Complete
+                  │
+                  ▼
+                Result
+```
+
+### Workflow execution
+
+A team can configure a deterministic capability sequence:
+
+```text
+Transform file
+     ↓
+Timestamp start
+     ↓
+Extract structured data
+     ↓
+Iterate records
+     ↓
+HTTP POST
+     ↓
+Collect results
+     ↓
+Timestamp end
+     ↓
+Send report
+```
+
+The orchestrator follows the configured sequence and determines the next executable step based on the current execution state.
+
+### Agentic execution
+
+A capability can alternatively configure an agentic execution context.
+
+The model receives:
+
+* A goal
+* Available tools
+* Relevant context
+* System instructions
+* Execution policies
+
+The model can determine which available tool or capability should be executed next.
+
+```text
+Capability
+     │
+     ▼
+   Agent
+     │
+     ├── next → Tool
+     │            ↓
+     │         Result
+     │            │
+     ├── next → Inference
+     │            ↓
+     │         Result
+     │            │
+     ├── next → Tool
+     │            ↓
+     │         Result
+     │            │
+     └── next → Complete
+```
+
+The orchestrator remains responsible for execution, policy enforcement, state and routing. The agent determines the next action within the tools and capabilities made available to it.
+
+## Tooling
+
+Tools are generic platform capabilities and are not domain-specific.
+
+Examples:
+
+* File transformation
+* Date/time
+* HTTP requests
+* Email
+* Document extraction
+* Data transformation
+* External service integrations
+
+Teams compose these tools into domain-specific capabilities without requiring the platform to understand the underlying business process.
+
+## Configuration
+
+Service Control manages:
+
+* Capabilities
+* Capability sequences
+* Available tooling
+* System prompts
+* Model configuration
+* Execution policies
+* Ownership and visibility
+* Versions and audit history
+
+The resulting manifest is provided to the orchestrator as the execution contract.
+
+A capability can therefore be implemented as either a **configured workflow**, an **agentic execution context**, or a combination of both.
+
+The platform remains domain-agnostic: **teams define what should be achieved; the platform provides the primitives and execution mechanisms to achieve it.**
+
+
 ---
 
 # End-State Architecture

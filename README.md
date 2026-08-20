@@ -13,9 +13,27 @@ Standalone Go service that exposes AI capabilities over an OpenAI-compatible HTT
 
 Applications request a **capability** via the OpenAI `model` field. The gateway maps that capability to a configured LLM endpoint and (quantized) model and never accepts caller-supplied LLM names.
 
-The HTTP call is synchronous: the gateway enqueues an internal CloudEvent, the worker processes it with priority fairness, and the handler waits for the correlated response. Producers must not `LPUSH` Redis.
+Callers never talk to Redis. They use an OpenAI-compatible client against this HTTP API:
 
-The producer contract is [docs/openai-http-ingestion.md](docs/openai-http-ingestion.md).
+```text
+Consumer
+   │
+   ▼
+POST /v1/chat/completions   (model = capability id)
+   │
+   ▼
+Gateway HTTP adapter  →  internal CloudEvent  →  Redis work queue
+   │                                              (priority lanes)
+   │                                                      │
+   │                                              Worker + Ollama
+   │                                                      │
+   ◄──────── wait on queue:ai.responses:{id} ◄────────────┘
+   │
+   ▼
+OpenAI chat.completion
+```
+
+The HTTP call is synchronous: the handler enqueues an internal CloudEvent, the worker processes it with priority fairness, and the handler waits for the correlated response. The producer contract is [docs/openai-http-ingestion.md](docs/openai-http-ingestion.md).
 
 Optional extra field `priority` on each request selects a processing lane: `CRITICAL`, `HIGH`, `MEDIUM`, or `LOW` (case-insensitive). Missing or invalid values default to `LOW`. The gateway demuxes the internal input list into Redis lanes and schedules work with fairness counters (see Configuration).
 
@@ -30,7 +48,7 @@ Runtime configuration (models, capability→model bindings, input character limi
 
 Compose for local/dev mounts `manifest.json` and passes `--manifest` so the stack works without AI Manager. Production-oriented runs can omit that flag and wait for the manager.
 
-For planned control-plane / data-plane separation, pluggable ingestion adapters, and the AI Gateway Manager, see [docs/future-architecture.md](docs/future-architecture.md).
+For planned control-plane / data-plane separation (Ingress, Orchestration, Policy, Service Manager), see [docs/future-architecture.md](docs/future-architecture.md). That document also describes how this gateway’s OpenAI HTTP producer contract relates to those later layers. Redis remains an internal work queue, not a future producer adapter.
 
 ## Prerequisites
 
@@ -207,12 +225,16 @@ Translate example:
 }
 ```
 
-## Health endpoints
+## HTTP endpoints
 
-| Path | Format | Meaning |
+| Path | Method | Meaning |
 |------|--------|---------|
-| `/health` | HTML | Per-capability readiness page |
-| `/health.json` | JSON | Same data for probes/automation |
+| `/v1/chat/completions` | POST | OpenAI Chat Completions; `model` is a capability id |
+| `/v1/models` | GET | Lists capability ids (`routing`, `intent-classification`, `translate`) |
+| `/health` | GET | Per-capability readiness page (HTML) |
+| `/health.json` | GET | Same data for probes/automation (JSON) |
+
+While dormant (no manifest), `/v1/*` returns an OpenAI-shaped **503**. Health reports `dormant` with HTTP **503**.
 
 Status values:
 
